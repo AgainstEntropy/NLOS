@@ -32,12 +32,3 @@ class MyDataset(Dataset):
     def __len__(self):
         return len(self.data)
 
-
-def load_video(path):
-    # TODO:
-    raise NotImplementedError
-
-
-def preprocess_video(video, config):
-    # TODO:
-    raise NotImplementedError
