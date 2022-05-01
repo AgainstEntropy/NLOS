@@ -2,7 +2,7 @@
 # @Date    : 2021/12/18 19:39
 # @Author  : WangYihao
 # @File    : functions.py
-
+import os
 
 import torch
 from torch import nn
@@ -23,24 +23,20 @@ def Conv_BN_Relu(in_channel, out_channel, kernel_size=(3, 3), stride=None):
     )
 
 
-def save_model(model, optimizer, model_type, acc=00):
+def save_model(model, optimizer, scheduler, save_dir, acc=00):
     model_paras = model.state_dict()
-    print("Model parameters:")
-    for k, v in model_paras.items():
-        print(f"{k}:\t {v.size()}")
-
     optim_paras = optimizer.state_dict()
-    print("\nOptimizer parameters:")
-    for k, v in optim_paras.items():
-        print(f"{k}")
+    scheduler_main_paras = scheduler.state_dict()
 
     save_time = time.strftime("%Y_%m_%d_%H_%M_%S", time.localtime())
-    save_path = f"saved_models/{acc}_polygen_{model_type}_{save_time}.pt"
+    save_path = os.path.join(save_dir, f'{acc:.1f}_{save_time}.pt')
     torch.save({
         "model_paras": model_paras,
-        "optim_paras": optim_paras
+        "optim_paras": optim_paras,
+        "scheduler_paras": scheduler_main_paras
     }, save_path)
-    print(f"\nSuccessfully saved to {save_path}")
+
+    print(f"\nSuccessfully saved model, optimizer and scheduler to {save_path}")
 
 
 def get_device(model):

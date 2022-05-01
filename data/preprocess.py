@@ -6,7 +6,6 @@ from tqdm import tqdm
 
 
 def sub_mean(frames: torch.Tensor) -> torch.Tensor:
-    # TODO:
     mean_frame = frames.mean(axis=0, keepdim=True)
     frames_sub_mean = frames - mean_frame
 
