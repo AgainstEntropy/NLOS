@@ -1,15 +1,29 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <project version="4">
-  <component name="PublishConfigData" autoUpload="Always" serverName="wangyh@VM-0-02:2223" remoteFilesAllowedToDisappearOnAutoupload="false" autoUploadExternalChanges="true" compareModeInSync="TEXT" showNewOnSourceInSync="false">
+  <component name="PublishConfigData" autoUpload="Always" serverName="wangyh@VM-0-2" remoteFilesAllowedToDisappearOnAutoupload="false" autoUploadExternalChanges="true" compareModeInSync="TEXT" showNewOnSourceInSync="false">
     <serverData>
-      <paths name="wangyh@VM-0-02:2223">
+      <paths name="NLOS@S-cluster">
+        <serverdata>
+          <mappings>
+            <mapping deploy="/cache_home/01-Projects/NLOS" local="$PROJECT_DIR$" web="/" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="my@VM-0-2">
+        <serverdata>
+          <mappings>
+            <mapping local="$PROJECT_DIR$" web="/" />
+          </mappings>
+        </serverdata>
+      </paths>
+      <paths name="wangyh@VM-0-2">
         <serverdata>
           <mappings>
             <mapping deploy="/01-Projects/01-NLOS" local="$PROJECT_DIR$" web="/" />
           </mappings>
         </serverdata>
       </paths>
-      <paths name="wangyihao@103.177.28.9:22 key">
+      <paths name="wd-code@S-cluster">
         <serverdata>
           <mappings>
             <mapping local="$PROJECT_DIR$" web="/" />

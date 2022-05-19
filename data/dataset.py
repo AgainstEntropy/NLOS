@@ -47,12 +47,14 @@ class MyDataset(Dataset):
 def make_dataset(stat_file='/mnt/cfs/wangyh/blender/blank_wall/datasets/statistic.txt',
                  png_root='/mnt/cfs/wangyh/blender/blank_wall/output_png',
                  dataset_dir='/mnt/cfs/wangyh/blender/blank_wall/datasets',
+                 noise_factor: float = None,
+                 resize=None,
                  device=None):
     with open(stat_file, mode='r') as f:
         png_dirs = [line.strip() for line in f.readlines()]
 
     classes = set([line.split('/')[0] for line in png_dirs])
-    print(f'{len(classes)} classes in total.')
+    print(f'{len(classes)} classes in total: {classes}')
     for cls in classes:
         class_dir = os.path.join(dataset_dir, cls)
         if not os.path.exists(class_dir):
@@ -64,7 +66,9 @@ def make_dataset(stat_file='/mnt/cfs/wangyh/blender/blank_wall/datasets/statisti
             continue
 
         png_abs_dir = os.path.join(png_root, png_dir)
-        frames = load_frames(png_abs_dir, device)
+        frames = load_frames(png_abs_dir, output_size=resize, device=device)[:, :, :, :3]  # RGBA -> RGB
+        if noise_factor is not None:
+            frames = frames + 255 * noise_factor * torch.randn_like(frames)
         frames_sub_mean = sub_mean(frames)
         reduce_H, reduce_W = reduce(frames_sub_mean)  # (W or H, T, RGB)
         save_dict = {"reduce_H": reduce_H.cpu().numpy(),

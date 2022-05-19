@@ -35,7 +35,7 @@ def trainer(model, optimizer, scheduler, loss_fn, train_loader,
     check_loader_train = check_loaders['train']
     check_loader_val = check_loaders['val']
     iters = len(train_loader)
-    max_val_acc = 0.75
+    max_val_acc = 0.9
 
     for epoch in range(1, epochs + 1):
         tic = time.time()
@@ -76,42 +76,24 @@ def trainer(model, optimizer, scheduler, loss_fn, train_loader,
     return batch_step
 
 
-def train_a_model(model_configs=None, train_configs=None, loader_settings=None):
+def train_a_model(model_configs=None, train_configs=None, loader_configs=None):
     """
         Train a model from zero.
     """
-    if train_configs is None:
-        train_configs = {
-            'log_dir': 'tb_logs',
-            'dataset_dir': '/mnt/cfs/wangyh/blender/blank_wall/datasets',
-            'epochs': 50,
-            'device': 'cuda:0',
-            'optim': 'Adam',
-            'lr': 1e-4,
-            'schedule': 'cosine_warm',
-            'cos_T': 15,
-            'cos_mul': 2,
-            'cos_iters': 3,
-            'momentum': 0.9,
-            'weight_decay': 0.05,
-        }
+    assert model_configs is not None
+    assert train_configs is not None
+    assert loader_configs is not None
 
-    if loader_settings is not None:
-        loader_settings = {
-            'fig_resize': (128, 64),
-            'batch_size': 16,
-            'dataset_ratio': (0.6, 0.2, 0.2)
-        }
     # make dataset
     # mean, std = torch.tensor(0.1094), torch.tensor(0.3660)  # polygons_unfilled_64_3
     T = transforms.Compose([
         transforms.ToTensor(),
-        transforms.Resize(loader_settings['fig_resize']),
+        transforms.Resize(loader_configs['fig_resize']),
         # transforms.Normalize(mean, std)
     ])
 
     loader_kwargs = {
-        'batch_size': loader_settings['batch_size'],  # default:1
+        'batch_size': loader_configs['batch_size'],  # default:1
         'shuffle': True,  # default:False
         'num_workers': 2,  # default:0
         'pin_memory': True,  # default:False
@@ -122,7 +104,7 @@ def train_a_model(model_configs=None, train_configs=None, loader_settings=None):
     full_dataset = MyDataset(ROOT=train_configs['dataset_dir'], reduce_mode='W', transform=T)
     train_loader, val_loader, test_loader = create_loaders(
         full_dataset,
-        ratio=loader_settings['dataset_ratio'],
+        ratio=loader_configs['dataset_ratio'],
         kwargs=loader_kwargs
     )
     check_loaders = {
@@ -131,12 +113,6 @@ def train_a_model(model_configs=None, train_configs=None, loader_settings=None):
     }
 
     # create model
-    if model_configs is None:
-        model_configs = {
-            'kernel_size': 7,
-            'depths': (4, 1),
-            'dims': (64, 64)
-        }
     model, optimizer, scheduler = [None] * 3
     # define model
     model = models.NLOS_Conv(in_chans=3, num_classes=5, kernel_size=model_configs['kernel_size'],
@@ -180,18 +156,18 @@ def train_a_model(model_configs=None, train_configs=None, loader_settings=None):
                            f"{train_configs['log_dir']}")
     log_dir = os.path.join(log_dir, save_time)
     writer = SummaryWriter(log_dir=log_dir)
-    # with open(os.path.join(log_dir, 'para.txt'), mode='w') as f:
-    #     f.write('## -- model configs -- ##\n')
-    #     for k, v in model_configs.items():
-    #         f.write(f'{k} :\t{v}\n')
-    #
-    #     f.write('\n## -- dataset configs -- ##\n')
-    #     for k, v in loader_kwargs.items():
-    #         f.write(f'{k} :\t{v}\n')
-    #
-    #     f.write('\n## -- train configs -- ##\n')
-    #     for k, v in train_configs.items():
-    #         f.write(f'{k} :\t{v}\n')
+    with open(os.path.join(log_dir, 'para.txt'), mode='w') as f:
+        f.write('## -- model configs -- ##\n')
+        for k, v in model_configs.items():
+            f.write(f'{k} :\t{v}\n')
+
+        f.write('\n## -- dataset configs -- ##\n')
+        for k, v in loader_kwargs.items():
+            f.write(f'{k} :\t{v}\n')
+
+        f.write('\n## -- train configs -- ##\n')
+        for k, v in train_configs.items():
+            f.write(f'{k} :\t{v}\n')
 
     # record some configs
     # xlsx_path = '/home/wangyh/01-Projects/03-my/records/train_paras.xlsx'
@@ -220,7 +196,8 @@ def train_a_model(model_configs=None, train_configs=None, loader_settings=None):
             train_loader=train_loader,
             check_fn=check_accuracy,
             check_loaders=check_loaders,
-            batch_step=0, epochs=train_configs['epochs'], log_every=1,
+            batch_step=0, epochs=train_configs['epochs'],
+            log_every=len(train_loader.dataset) // loader_configs['batch_size'] // 4,
             save_dir=save_dir,
             writer=writer)
 
@@ -236,27 +213,27 @@ def train_a_model(model_configs=None, train_configs=None, loader_settings=None):
 if __name__ == '__main__':
     model_configs = {
         'kernel_size': 5,
-        'depths': (4, 1),
-        'dims': (64, 64)
+        'depths': (3, 1),
+        'dims': (16, 16)
     }
     train_configs = {
         'log_dir': 'test_runs',
         'dataset_dir': '/mnt/cfs/wangyh/blender/blank_wall/datasets',
-        'epochs': 50,
+        'epochs': 40,
         'device': 'cuda:0',
         'optim': 'Adam',
-        'lr': 1e-4,
+        'lr': 8e-5,
         'schedule': 'cosine_warm',
         'cos_T': 15,
         'cos_mul': 2,
-        'cos_iters': 3,
+        'cos_iters': 2,
         'momentum': 0.9,
         'weight_decay': 0.05,
     }
-    loader_settings = {
+    loader_configs = {
         'fig_resize': (128, 64),
-        'batch_size': 8,
-        'dataset_ratio': (0.6, 0.2, 0.2)
+        'batch_size': 16,
+        'dataset_ratio': (0.7, 0.15, 0.15)
     }
 
-    train_a_model(model_configs=model_configs, train_configs=train_configs, loader_settings=loader_settings)
+    train_a_model(model_configs=model_configs, train_configs=train_configs, loader_configs=loader_configs)

@@ -41,7 +41,8 @@ def save_model(model, optimizer, scheduler, save_dir, acc=00):
 
 def get_device(model):
     if next(model.parameters()).device.type == 'cuda':
-        device = torch.device('cuda')
+        index = next(model.parameters()).device.index
+        device = torch.device(f'cuda:{index}')
     else:
         device = torch.device('cpu')
     return device

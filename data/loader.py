@@ -60,4 +60,4 @@ def load_frames(
         if output_size is not None:
             frame = resize(frame, size=output_size)
         frames[i] = frame.permute(1, 2, 0)
-    return frames
+    return frames  # (N, H, W, C)
