@@ -32,7 +32,8 @@ def load_frames(
         root: str,
         frame_range: Union[None, Tuple[int, int]] = None,
         output_size: Union[None, Tuple[int, int]] = None,
-        device=None
+        device=None,
+        rgb_only=True
 ) -> Tensor:
     """
 
@@ -43,7 +44,7 @@ def load_frames(
     :return:
     """
     # TODO:
-    frame_list = sorted(os.listdir(root))
+    frame_list = sorted([f for f in os.listdir(root) if f.endswith('.png')])
     if frame_range is not None:
         frame_list = frame_list[frame_range[0]: frame_range[1]]
     frame_paths = [os.path.join(root, f) for f in frame_list]
@@ -52,11 +53,16 @@ def load_frames(
     frame_num = len(frame_list)
     if output_size is None:
         output_size = (H, W)
-    frames = torch.zeros((frame_num, *output_size, C))
+    if C == 4 and rgb_only:
+        frames = torch.zeros((frame_num, *output_size, 3))
+    else:
+        frames = torch.zeros((frame_num, *output_size, C))
     if device is not None:
         frames = frames.to(device)
     for i in range(frame_num):
         frame = read_image(frame_paths[i])
+        if C == 4 and rgb_only:
+            frame = frame[:3]
         if output_size is not None:
             frame = resize(frame, size=output_size)
         frames[i] = frame.permute(1, 2, 0)

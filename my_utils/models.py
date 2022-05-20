@@ -20,8 +20,8 @@ class NLOS_Conv(nn.Module):
         dims (tuple(int)): Feature dimension at each stage. Default: (16, 16)
     """
 
-    def __init__(self, in_chans=3, num_classes=5, kernel_size=5,
-                 depths=(3, 1), dims=(16, 16)):
+    def __init__(self, in_chans=3, num_classes=10, kernel_size=7,
+                 depths=(4, 1), dims=(16, 32)):
         super().__init__()
 
         assert len(depths) == len(dims)
@@ -38,8 +38,9 @@ class NLOS_Conv(nn.Module):
             self.stages.append(stage)
             self.stages.append(self.conv_block(dims[i], dims[i + 1]))
 
-        self.GAP = nn.AdaptiveAvgPool2d(output_size=(1, 1))
+        self.GAP = GAP()
         self.head = nn.Linear(dims[-1], num_classes)
+        self.loss_func = nn.CrossEntropyLoss()
 
         self.apply(self._init_weights)
 
@@ -55,7 +56,7 @@ class NLOS_Conv(nn.Module):
         Args:
             in_chans (int): Number of input image channels.
             out_chans (int): Number of output image channels.
-            kernel_size (int): Kernel size of Conv layer. Default: 5
+            kernel_size (int): Kernel size of Conv layer. Default: 7
         """
         block = nn.Sequential(
             nn.Conv2d(in_chans, out_chans, kernel_size, stride=1, padding='same', bias=False),
@@ -65,13 +66,17 @@ class NLOS_Conv(nn.Module):
         )
         return block
 
-    def forward(self, x):
+    def forward(self, xx):
+        inputs, labels = xx
+        x = inputs.clone()
         for stage in self.stages:
             x = stage(x)  # (N, C[i], H, W) -> (N, C[i+1], H, W)
-        x = self.GAP(x).squeeze()  # global average pooling, (N, C, H, W) -> (N, C)
+        x = self.GAP(x)
         scores = self.head(x)
+        loss = self.loss_func(scores, labels)
+        preds = scores.argmax(axis=1)
 
-        return scores
+        return loss, preds
 
 
 class LayerNorm(nn.Module):
@@ -81,7 +86,7 @@ class LayerNorm(nn.Module):
     with shape (batch_size, channels, height, width).
     """
 
-    def __init__(self, normalized_shape, eps=1e-6, data_format="channels_last"):
+    def __init__(self, normalized_shape, eps=1e-6, data_format="channels_first"):
         super().__init__()
         self.weight = nn.Parameter(torch.ones(normalized_shape))
         self.bias = nn.Parameter(torch.zeros(normalized_shape))
@@ -100,3 +105,12 @@ class LayerNorm(nn.Module):
             x = (x - u) / torch.sqrt(s + self.eps)
             x = self.weight[:, None, None] * x + self.bias[:, None, None]
             return x
+
+
+class GAP(nn.Module):
+    def __init__(self):
+        super(GAP, self).__init__()
+        self.avg_pool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
+
+    def forward(self, x):
+        return self.avg_pool(x).squeeze()  # (N, C, H, W) -> (N, C)

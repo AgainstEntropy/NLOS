@@ -11,16 +11,28 @@ import torch.nn.functional as F
 import time
 
 
-def Conv_BN_Relu(in_channel, out_channel, kernel_size=(3, 3), stride=None):
-    if stride is not None:
-        conv_layer = nn.Conv2d(in_channel, out_channel, kernel_size, stride, bias=False)
-    else:
-        conv_layer = nn.Conv2d(in_channel, out_channel, kernel_size, padding='same', bias=False)
-    return nn.Sequential(
-        conv_layer,
-        nn.BatchNorm2d(out_channel),
-        nn.ReLU()
-    )
+class AverageMeter(object):
+    """Computes and stores the average and current value"""
+
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.avg = -1
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count
+
+
+def correct_rate(preds: torch.Tensor,
+                 labels: torch.Tensor):
+    assert len(preds) == len(labels)
+    num_correct = (preds == labels).sum()
+    return num_correct / len(preds)
 
 
 def save_model(model, optimizer, scheduler, save_dir, acc=00):
@@ -68,55 +80,55 @@ def check_accuracy(test_model, loader, training=False):
         print(f"Test accuracy is : {100. * test_acc:.2f}%\tInfer time: {time.time() - tic}")
 
 
-def train(model, optimizer, scheduler, loss_fn, train_loader,
-          check_fn, check_loaders, batch_step, epochs=2, log_every=10, writer=None):
-    """
-
-    Args:
-        batch_step (int):
-        epochs (int):
-        log_every (int):
-        writer :
-
-    Returns:
-        batch_step (int):
-    """
-    device = get_device(model)
-    batch_size = train_loader.batch_size
-    check_loader_train = check_loaders['train']
-    check_loader_val = check_loaders['val']
-    iters = len(train_loader)
-    for epoch in range(1, epochs + 1):
-        tic = time.time()
-        for batch_idx, (X, Y) in enumerate(train_loader):
-            batch_step += 1
-            model.train()
-            X = X.to(device, dtype=torch.float32)
-            Y = Y.to(device, dtype=torch.int64)
-            scores = model(X)
-            loss = loss_fn(scores, Y)
-            if writer is not None:
-                writer.add_scalar('loss', loss.item(), batch_step)
-                writer.add_scalar('lr', optimizer.param_groups[0]['lr'], batch_step)
-
-            # back propagate
-            optimizer.zero_grad()
-            loss.backward()
-            optimizer.step()
-            scheduler.step(batch_step / iters)
-
-            # check accuracy
-            if batch_idx % log_every == 0:
-                model.eval()
-                train_acc = check_fn(model, check_loader_train, training=True)
-                val_acc = check_fn(model, check_loader_val, training=True)
-                if writer is not None:
-                    writer.add_scalars('acc', {'train': train_acc, 'val': val_acc}, batch_step)
-                print('Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.5f}\tVal acc: {:.1f}%'.format(
-                    epoch, batch_idx * batch_size, len(train_loader.dataset),
-                    100. * batch_idx / len(train_loader),
-                    loss, 100. * val_acc))
-
-        print('====> Epoch: {}\tTime: {}s'.format(epoch, time.time() - tic))
-
-    return batch_step
+# def train(model, optimizer, scheduler, loss_fn, train_loader,
+#           check_fn, check_loaders, batch_step, epochs=2, log_every=10, writer=None):
+#     """
+#
+#     Args:
+#         batch_step (int):
+#         epochs (int):
+#         log_every (int):
+#         writer :
+#
+#     Returns:
+#         batch_step (int):
+#     """
+#     device = get_device(model)
+#     batch_size = train_loader.batch_size
+#     check_loader_train = check_loaders['train']
+#     check_loader_val = check_loaders['val']
+#     iters = len(train_loader)
+#     for epoch in range(1, epochs + 1):
+#         tic = time.time()
+#         for batch_idx, (X, Y) in enumerate(train_loader):
+#             batch_step += 1
+#             model.train()
+#             X = X.to(device, dtype=torch.float32)
+#             Y = Y.to(device, dtype=torch.int64)
+#             scores = model(X)
+#             loss = loss_fn(scores, Y)
+#             if writer is not None:
+#                 writer.add_scalar('loss', loss.item(), batch_step)
+#                 writer.add_scalar('lr', optimizer.param_groups[0]['lr'], batch_step)
+#
+#             # back propagate
+#             optimizer.zero_grad()
+#             loss.backward()
+#             optimizer.step()
+#             scheduler.step(batch_step / iters)
+#
+#             # check accuracy
+#             if batch_idx % log_every == 0:
+#                 model.eval()
+#                 train_acc = check_fn(model, check_loader_train, training=True)
+#                 val_acc = check_fn(model, check_loader_val, training=True)
+#                 if writer is not None:
+#                     writer.add_scalars('acc', {'train': train_acc, 'val': val_acc}, batch_step)
+#                 print('Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.5f}\tVal acc: {:.1f}%'.format(
+#                     epoch, batch_idx * batch_size, len(train_loader.dataset),
+#                     100. * batch_idx / len(train_loader),
+#                     loss, 100. * val_acc))
+#
+#         print('====> Epoch: {}\tTime: {}s'.format(epoch, time.time() - tic))
+#
+#     return batch_step
