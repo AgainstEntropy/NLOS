@@ -2,45 +2,39 @@ import os
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import torch
-from torch import Tensor
 from torchvision.io import read_video, read_image
 from torchvision.transforms.functional import resize
 
 
 def load_video(
         path: str,
-        pts_unit: str = "sec",
-        start_pts: Optional[Union[int, float]] = 0,
-        end_pts: Optional[Union[int, float]] = None,
-) -> Tuple[torch.Tensor, torch.Tensor, Dict[str, Any]]:
-    """
+        start_sec: Optional[Union[int, float]] = 0,
+        end_sec: Optional[Union[int, float]] = None,
+        frame_range: tuple = (0, 64),
+        output_size: tuple = None
+) -> torch.Tensor:
 
-    :param path:
-    :param pts_unit:
-    :param start_pts:
-    :param end_pts:
-    :return:
-    """
-    # TODO:
-    vframes, aframes, info = read_video(path, start_pts, end_pts, pts_unit)
-    vframes = vframes.type(torch.float16) / 255.
+    vframes, _, _ = read_video(path, start_sec, end_sec, pts_unit='sec')
+    end_frame = min(frame_range[1], len(vframes))
+    vframes = vframes[frame_range[0]: end_frame].permute(0, 3, 1, 2)  # (T, H, W, C) -> (T, C, H, W)
+    if output_size is not None:
+        vframes = resize(vframes, size=output_size)
+    vframes = vframes.type(torch.float32) / 255.
 
-    return vframes, aframes, info
+    return vframes.permute(0, 2, 3, 1)  # (T, H, W, C)
 
 
 def load_frames(
         root: str,
         frame_range: Union[None, Tuple[int, int]] = None,
         output_size: Union[None, Tuple[int, int]] = None,
-        device=None,
         rgb_only=True
-) -> Tensor:
+) -> torch.Tensor:
     """
 
     :param root:
     :param frame_range: (start frame, end_frame), not include endpoint.
     :param output_size:
-    :param device:
     :return:
     """
     # TODO:
@@ -57,8 +51,6 @@ def load_frames(
         frames = torch.zeros((frame_num, *output_size, 3))
     else:
         frames = torch.zeros((frame_num, *output_size, C))
-    if device is not None:
-        frames = frames.to(device)
     for i in range(frame_num):
         frame = read_image(frame_paths[i])
         if C == 4 and rgb_only:

@@ -10,7 +10,7 @@ import torch
 from .utils import get_device
 
 
-def grid_vis(loader, row_num, multiply=20, model=None, pic_mode='np'):
+def grid_vis(loader, row_num, multiply=20, model=None, norm=True):
     imgs, labels = next(iter(loader))
     if model is not None:
         device = get_device(model)
@@ -35,7 +35,11 @@ def grid_vis(loader, row_num, multiply=20, model=None, pic_mode='np'):
             plt.title(f"GT:{labels[i]}  Pre:{preds[i]}")
         else:
             plt.title(f"{labels[i]}")
-        plt.imshow(vis[i] * multiply)
+        if norm:
+            vis[i] = (vis[i] - vis[i].min()) / (vis[i].max() - vis[i].min())
+        else:
+            vis[i] *= multiply
+        plt.imshow(vis[i])
         plt.axis('off')
     plt.tight_layout()
     plt.show()

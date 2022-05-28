@@ -7,6 +7,7 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
+
 # from timm.models.layers import trunc_normal_, DropPath
 
 
@@ -24,19 +25,21 @@ class NLOS_Conv(nn.Module):
                  depths=(4, 1), dims=(16, 32)):
         super().__init__()
 
+        self.num_classes = num_classes
         assert len(depths) == len(dims)
         self.num_stages = len(dims)
 
         self.stages = nn.ModuleList()
-        start_layer = self.conv_block(in_chans, dims[0])
+        start_layer = self.conv_block(in_chans, dims[0], kernel_size)
         self.stages.append(start_layer)
 
         for i in range(self.num_stages - 1):
-            stage = nn.Sequential(
-                *[self.conv_block(dims[i], dims[i], kernel_size) for _ in range(depths[i] - 1)]
-            )
-            self.stages.append(stage)
-            self.stages.append(self.conv_block(dims[i], dims[i + 1]))
+            if depths[i] - 1 > 0:
+                self.stages.append(nn.Sequential(
+                    *[self.conv_block(dims[i], dims[i], kernel_size) for _ in range(depths[i] - 1)]
+                ))
+            if i < self.num_stages - 1:
+                self.stages.append(self.conv_block(dims[i], dims[i + 1], kernel_size))
 
         self.GAP = GAP()
         self.head = nn.Linear(dims[-1], num_classes)

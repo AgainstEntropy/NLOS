@@ -83,12 +83,7 @@ class Trainer(object):
         self.dist_cfgs['device'] = self.device
 
         save_time = time.strftime("%Y_%m_%d_%H_%M_%S", time.localtime())
-        run_dir = os.path.join(os.getcwd(),
-                               f"{self.log_cfgs['log_dir']}/"
-                               f"{self.model_cfgs['type']}/"
-                               f"KS_{self.model_cfgs['kernel_size']}_"
-                               f"ACT_{self.model_cfgs['act']}_"
-                               f"Norm_{self.model_cfgs['norm']}")
+        run_dir = os.path.join(os.getcwd(), self.log_cfgs['log_dir'])
         self.log_dir = os.path.join(run_dir, save_time)
         self.ckpt_dir = os.path.join(self.log_dir, 'checkpoints')
         os.makedirs(self.ckpt_dir, exist_ok=True)
@@ -105,6 +100,12 @@ class Trainer(object):
         self.val_metrics = {'current_acc': 0.0, 'best_acc': 0.0,
                             'best_epoch': 0}
 
+        if self.train_cfgs['mode'] == 'train':
+            (self.train_loader, self.train_sampler), (self.val_loader, self.val_sampler) \
+                = self._load_dataset(phase='train')
+        if self.train_cfgs['mode'] == 'test':
+            self.test_loader, self.test_sampler = self._load_dataset(phase='test')
+
         self._build_model()
         if self.dist_cfgs['distributed']:
             self.model = nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
@@ -112,12 +113,6 @@ class Trainer(object):
                              device_ids=[self.dist_cfgs['local_rank']],
                              output_device=self.dist_cfgs['local_rank'],
                              find_unused_parameters=False)
-
-        if self.train_cfgs['mode'] == 'train':
-            (self.train_loader, self.train_sampler), (self.val_loader, self.val_sampler) \
-                = self._load_dataset(phase='train')
-        if self.train_cfgs['mode'] == 'test':
-            self.test_loader, self.test_sampler = self._load_dataset(phase='test')
 
         self._load_optimizer()
 
@@ -133,33 +128,48 @@ class Trainer(object):
             print(f"{time.time() - tic} sec are used to initialize a Trainer.")
 
     def _init_wandb(self, project_name, run_name):
+        wandb_config = {
+            "dataset": self.dataset_cfgs['name'],
+            "class_type": self.train_cfgs['class_type'],
+            "kernel_size": self.model_cfgs['kernel_size'],
+            "depths": self.model_cfgs['depths'],
+            "dims": self.model_cfgs['dims'],
+            "batch_size": self.train_cfgs['batch_size'],
+            "lr_backbone": self.optim_kwargs['lr'],
+            "optimizer": self.optim_kwargs['optimizer'],
+            "weight_decay": self.optim_kwargs['weight_decay'],
+            "epochs": self.schedule_cfgs['max_epoch'],
+        }
         wandb.init(project=project_name, entity="against-entropy", name=run_name, dir=self.log_dir,
-                   config={
-                       "kernel_size": self.model_cfgs['kernel_size'],
-                       "depths": self.model_cfgs['depths'],
-                       "dims": self.model_cfgs['dims'],
-                       "batch_size": self.train_cfgs['batch_size'],
-                       "lr_backbone": self.optim_kwargs['lr'],
-                       "optimizer": self.optim_kwargs['optimizer'],
-                       "weight_decay": self.optim_kwargs['weight_decay'],
-                       "epochs": self.schedule_cfgs['max_epoch'],
-                   })
+                   config=wandb_config)
         wandb.watch(self.model)
+        config_table = PrettyTable()
+        config_table.add_column('Phase', list(wandb_config))
+        config_table.add_column('Val', list(wandb_config.values()))
+
+        logger.info('\n' + config_table.get_string())
 
     def _build_model(self):
+        if self.train_cfgs['class_type'] == 'action':
+            self.model_cfgs['num_classes'] = 10
+        elif self.train_cfgs['class_type'] == 'position':
+            self.model_cfgs['num_classes'] = 5
         self.model = models.NLOS_Conv(**self.model_cfgs)
         self.model.to(self.device)
 
     def _load_dataset(self, phase='train'):
+        dataset_dir = os.path.join(self.dataset_cfgs['dataset_root'], self.dataset_cfgs['name'])
         trans = T.Compose([
             T.ToTensor(),
-            T.Resize((self.dataset_cfgs['fig_resize'],) * 2)
+            T.Resize(self.dataset_cfgs['fig_resize'])
         ])
         if self.dataset_cfgs['preprocess']:
             trans = T.Compose([trans, T.Normalize(self.dataset_cfgs['mean'], self.dataset_cfgs['std'])])
 
         if self.train_cfgs['mode'] == 'train':
-            train_dataset, val_dataset = make_dataset(dataset_dir=self.dataset_cfgs['dataset_dir'],
+            train_dataset, val_dataset = make_dataset(dataset_root=dataset_dir,
+                                                      raw_data_root=self.dataset_cfgs['raw_data_root'],
+                                                      cls_type=self.train_cfgs['class_type'],
                                                       phase='train',
                                                       ratio=self.dataset_cfgs['train_ratio'],
                                                       reduced_mode='W',
@@ -172,17 +182,19 @@ class Trainer(object):
                 train_sampler = None
                 val_sampler = None
 
-            train_loader = DataLoader(train_dataset, **self.loader_kwargs)
-            val_loader = DataLoader(val_dataset, **self.loader_kwargs)
+            train_loader = DataLoader(train_dataset, **self.loader_kwargs, drop_last=True)
+            val_loader = DataLoader(val_dataset, **self.loader_kwargs, drop_last=False)
             return (train_loader, train_sampler), (val_loader, val_sampler)
 
         elif self.train_cfgs['mode'] == 'test':
-            test_dataset = make_dataset(dataset_dir=self.dataset_cfgs['dataset_dir'],
+            test_dataset = make_dataset(dataset_root=dataset_dir,
+                                        raw_data_root=self.dataset_cfgs['raw_data_root'],
+                                        cls_type=self.train_cfgs['class_type'],
                                         phase='test',
                                         reduced_mode='W',
                                         transform=trans)
             test_sampler = DistributedSampler(test_dataset, shuffle=True) if self.dist_cfgs['distributed'] else None
-            test_loader = DataLoader(test_dataset, **self.loader_kwargs)
+            test_loader = DataLoader(test_dataset, **self.loader_kwargs, drop_last=False)
             return test_loader, test_sampler
 
     def _load_optimizer(self):
@@ -224,6 +236,8 @@ class Trainer(object):
 
         if self.train_cfgs['amp']:
             self.scaler = GradScaler()
+
+        self.optim_kwargs['optimizer'] = optim_type
 
     def run(self):
         for epoch in range(self.start_epoch, self.schedule_cfgs['max_epoch']):
