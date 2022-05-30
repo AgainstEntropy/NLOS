@@ -44,12 +44,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="training a classifier convnet")
     parser.add_argument('-cfg', '--config', type=str, default='configs/default.yaml')
     parser.add_argument('-ks', '--kernel_size', type=int, default=7)
-    parser.add_argument('--depths', type=lambda x: tuple(int(i) for i in x.split(',')))
-    parser.add_argument('--dims', type=lambda x: tuple(int(i) for i in x.split(',')))
+    parser.add_argument('--depths', type=lambda x: tuple(int(i) for i in x.split(',')), default='4,1')
+    parser.add_argument('--dims', type=lambda x: tuple(int(i) for i in x.split(',')), default='16,32')
     # parser.add_argument('-act', '--activation', type=str, choices=['relu', 'gelu'], default='relu')
     # parser.add_argument('-norm', '--normalization', type=str, choices=['BN', 'LN'], default='BN')
 
-    parser.add_argument('-dn', '--dataset_name', type=str, default='random_noise0.01')
+    parser.add_argument('-dn', '--dataset_name', type=str, default='variety')
+    parser.add_argument('--reduced_mode', type=str, choices=['H', 'W', ''], default='W')
 
     parser.add_argument('-b', '--batch_size', type=int, default=64)
     parser.add_argument('-r', '--resume', action='store_true', help='load previously saved checkpoint')
@@ -59,10 +60,11 @@ if __name__ == '__main__':
     parser.add_argument('-lr_b', '--lr_backbone', type=float, default=1e-4)
     parser.add_argument('-wd', '--weight_decay', type=float, default=3.0e-2)
 
-    parser.add_argument('-T', '--cos_T', type=int)
+    parser.add_argument('-T', '--cos_T', type=int, default=25)
 
     parser.add_argument('-log', '--log_dir', type=str, default='test_runs', help='where to log train results')
-    parser.add_argument('-g', '--gpu_ids', required=True, type=lambda x: x.replace(" ", ""), default='0,1', help='available gpu ids')
+    parser.add_argument('-g', '--gpu_ids', required=True, type=lambda x: x.replace(" ", ""), default='0,1',
+                        help='available gpu ids')
     parser.add_argument('--port', type=str, default='4250', help='port number of distributed init')
     args = parser.parse_args()
 
@@ -76,6 +78,7 @@ if __name__ == '__main__':
     # config['model_configs']['norm'] = args.normalization
 
     config['dataset_configs']['name'] = args.dataset_name
+    config['dataset_configs']['reduced_mode'] = args.reduced_mode
 
     config['train_configs']['batch_size'] = args.batch_size
     config['train_configs']['resume'] = args.resume

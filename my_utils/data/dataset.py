@@ -9,7 +9,6 @@ import torch
 import yaml
 from scipy.io import savemat, loadmat
 from torch.utils.data import Dataset
-from torch.utils.data.dataloader import DataLoader
 from torch.utils.data.dataset import random_split
 from tqdm import tqdm
 
@@ -18,19 +17,40 @@ from my_utils.data.preprocess import sub_mean, reduce
 from my_utils.utils import get_cls_from_position
 
 
-class MyDataset_base(Dataset):
-    def __init__(self, dataset_root, raw_data_root=None, reduce_mode='W', transform=None):
+class MyDataset(Dataset):
+    def __init__(self, dataset_root, reduce_mode='W', transform=None,
+                 mat_name='NNone', cls_mode='action'):
         assert reduce_mode in 'HW'
         self.reduce_mode = reduce_mode
         self.dataset_root = dataset_root
-        self.raw_data_root = raw_data_root
         self.transform = transform
+        self.mat_name = 'reduced_data_' + mat_name + '.mat'
+        self.cls_mode = cls_mode
 
         self.data = []
         self.get_all_data()
 
     def get_all_data(self):
-        raise NotImplementedError
+        print('Loading dataset:')
+        mat_paths = []
+        labels = []
+
+        for png_dir in tqdm(os.listdir(self.dataset_root)):
+            png_abs_dir = os.path.join(self.dataset_root, png_dir)
+            if not os.path.isdir(png_abs_dir):
+                continue
+            mat_abs_path = os.path.join(png_abs_dir, self.mat_name)
+            if os.path.exists(mat_abs_path):
+                mat_paths.append(mat_abs_path)
+                if self.cls_mode == 'action':
+                    classes = ['Clap', 'Crouch to Stand', 'Dance', 'Idle', 'Jump']
+                    cls_to_idx = dict(zip(classes, range(len(classes))))
+                    cls_idx = cls_to_idx[get_configs(png_abs_dir)['action']]
+                elif self.cls_mode == 'position':
+                    cls_idx = get_configs(png_abs_dir)['pos_num']
+                labels.append(cls_idx)
+
+        self.data.extend(list(zip(mat_paths, labels)))
 
     def __getitem__(self, index):
         mat_path, label = self.data[index]
@@ -45,48 +65,22 @@ class MyDataset_base(Dataset):
         return len(self.data)
 
 
-class MyDataset_actions(MyDataset_base):
-    def __init__(self, dataset_root, reduce_mode='W', transform=None):
-        super().__init__(dataset_root=dataset_root, reduce_mode=reduce_mode, transform=transform)
-
-    def get_all_data_old(self):
-        cls_dirs = [os.path.join(self.dataset_root, d) for d in os.listdir(self.dataset_root)]
-        cls_dirs = sorted([d for d in cls_dirs if os.path.isdir(d)])
-        print([os.path.split(d)[-1] for d in cls_dirs])
-        for idx, DIR in enumerate(cls_dirs):
-            class_path = os.path.join(self.dataset_root, DIR)
-            class_files = [os.path.join(class_path, file) for file in os.listdir(class_path)]
-            self.data.extend(list(zip(class_files, [idx] * len(class_files))))
-
-    def get_all_data(self):
-        classes = ['Clap', 'Crouch to Stand', 'Dance', 'Idle', 'Jump']
-        cls_to_idx = dict(zip(classes, range(len(classes))))
-
-        mats = sorted([f for f in os.listdir(self.dataset_root) if f.endswith('.mat')])
-        cls_list = [mat.split('_')[0] for mat in mats]
-        labels = [cls_to_idx[cls] for cls in cls_list]
-        mat_abs_paths = [os.path.join(self.dataset_root, mat) for mat in mats]
-
-        self.data.extend(list(zip(mat_abs_paths, labels)))
-
-
-class MyDataset_positions(MyDataset_base):
-    def __init__(self, dataset_root, raw_data_root, reduce_mode='W', transform=None):
-        super().__init__(dataset_root=dataset_root, raw_data_root=raw_data_root,
-                         reduce_mode=reduce_mode, transform=transform)
-
-    def get_all_data(self):
-        cls_dirs = [os.path.join(self.dataset_root, d) for d in os.listdir(self.dataset_root)]
-        cls_dirs = sorted([d for d in cls_dirs if os.path.isdir(d)])
-        for cls in cls_dirs:
-            class_abs_dir = os.path.join(self.dataset_root, cls)
-            for mat in os.listdir(class_abs_dir):
-                mat_abs_path = os.path.join(class_abs_dir, mat)
-                # /mnt/cfs/wangyh/blender/blank_wall/datasets/random/Clapping/Bryce_grey_tiling_05-18_02:22.mat
-                raw_png_dir = os.path.join(self.raw_data_root, cls, mat.replace('.mat', ''))
-                # /mnt/cfs/wangyh/blender/blank_wall/output_random/Clapping/Bryce_grey_tiling_05-18_02:22
-                pos_cls = get_cls_from_position(os.path.join(raw_png_dir, 'configs.yaml'))
-                self.data.append((mat_abs_path, pos_cls))
+def make_dataset(
+        dataset_root: str,
+        cls_mode: str = 'action',
+        phase: str = 'train',
+        ratio: float = 0.8,
+        reduced_mode='W',
+        transform=None
+):
+    full_dataset = MyDataset(dataset_root=dataset_root, reduce_mode=reduced_mode,
+                             transform=transform, cls_mode=cls_mode)
+    if phase == 'train':
+        train_size = int(len(full_dataset) * ratio)
+        val_size = len(full_dataset) - train_size
+        return random_split(full_dataset, [train_size, val_size])
+    elif phase == 'test':
+        return full_dataset
 
 
 def build_dataset(png_root='/mnt/cfs/wangyh/blender/blank_wall/output_random',
@@ -118,25 +112,6 @@ def build_dataset(png_root='/mnt/cfs/wangyh/blender/blank_wall/output_random',
                      "reduce_W": reduce_W.cpu().numpy()}
         savemat(mat_path, save_dict)
 
-
-def make_dataset(
-        dataset_root: str,
-        raw_data_root: str,
-        cls_type: str = 'action',
-        phase: str = 'train',
-        ratio: float = 0.8,
-        reduced_mode='W',
-        transform=None
-):
-    DS_class = {'action': MyDataset_actions, 'position': MyDataset_positions}[cls_type]
-    full_dataset = DS_class(dataset_root=dataset_root, raw_data_root=raw_data_root,
-                            reduce_mode=reduced_mode, transform=transform)
-    if phase == 'train':
-        train_size = int(len(full_dataset) * ratio)
-        val_size = len(full_dataset) - train_size
-        return random_split(full_dataset, [train_size, val_size])
-    elif phase == 'test':
-        return full_dataset
 
 
 def check_dataset(check_root='/mnt/cfs/wangyh/blender/blank_wall/output_variety',
@@ -212,59 +187,56 @@ def analysis_dir_name(png_dir: str):
 def get_configs(dir_path: str):
     with open(os.path.join(dir_path, 'configs.yaml'), 'r') as stream:
         config = yaml.load(stream, Loader=yaml.FullLoader)
-    return config['render_state'], config['action'], config['rot_num'], config['pos_num'], config['floor']
+    return config
 
 
 class raw_png_processor(object):
     def __init__(self,
                  project_root: str = '/mnt/cfs/wangyh/blender/blank_wall/',
-                 dataset_name: str = 'variety'):
+                 dataset_name: str = 'variety',
+                 mode: str = 'train'):
 
+        self.raw_png_root = os.path.join(project_root, 'raw_pngs/' + dataset_name)
         self.result_file = None
-        self.raw_png_root = os.path.join(project_root, 'output_' + dataset_name)
-        self.output_dir = os.path.join(project_root, 'datasets/' + dataset_name)
+        self.mode = mode
+        if mode == 'unseen':
+            self.raw_png_root = self.raw_png_root + '_unseen'
+        assert os.path.exists(self.raw_png_root)
 
         self.actions = ['Clap', 'Crouch to Stand', 'Dance', 'Idle', 'Jump']
 
-    def check_data(self, mode='train'):
-        if mode == 'unseen':
-            check_root = self.raw_png_root + '_unseen'
-            output_dir = self.output_dir + '_unseen'
-        else:
-            check_root = self.raw_png_root
-            output_dir = self.output_dir
+    def check_data(self):
         floors = {
             'train': ['white_tiling', 'grey_tiling', 'wooden_floor_1', 'wooden_floor_2'],
             'unseen': ['yellow_tiling']
         }
 
         data_dict = {
-            'floor': dict.fromkeys(floors[mode], 0),
+            'floor': dict.fromkeys(floors[self.mode], 0),
             'rot_num': [0, ] * 4,
-            'pos_num': [0, ] * (5 if mode == 'train' else 4)
+            'pos_num': [0, ] * (5 if self.mode == 'train' else 4)
         }
 
         actions_num = dict.fromkeys(self.actions, 0)
         completed_dirs = []
-        png_dirs = os.listdir(check_root)
+        png_dirs = os.listdir(self.raw_png_root)
         for png_dir in tqdm(png_dirs):
-            abs_dir = os.path.join(check_root, png_dir)
-            render_state, action, rot_num, pos_num, floor = get_configs(abs_dir)
-            if render_state == 'finish':
-                png_num = len([f for f in os.listdir(os.path.join(check_root, abs_dir)) if f.endswith('.png')])
+            abs_dir = os.path.join(self.raw_png_root, png_dir)
+            config = get_configs(abs_dir)
+            if config['render_state'] == 'finish':
+                png_num = len([f for f in os.listdir(os.path.join(self.raw_png_root, abs_dir)) if f.endswith('.png')])
                 if png_num == 64:
                     completed_dirs.append(png_dir + '\n')
-                    actions_num[action] += 1
-                    data_dict['floor'][floor] += 1
-                    data_dict['rot_num'][rot_num] += 1
-                    data_dict['pos_num'][pos_num] += 1
+                    actions_num[config['action']] += 1
+                    data_dict['floor'][config['floor']] += 1
+                    data_dict['rot_num'][config['rot_num']] += 1
+                    data_dict['pos_num'][config['pos_num']] += 1
 
         print(actions_num)
         for k, v in data_dict.items():
             print(f'{k}\t {v}')
 
-        os.makedirs(output_dir, exist_ok=True)
-        self.result_file = os.path.join(output_dir, 'complete.txt')
+        self.result_file = os.path.join(self.raw_png_root, 'render_state.txt')
         with open(self.result_file, mode='a+') as f:
             f.truncate(0)
             f.writelines(completed_dirs)
@@ -278,11 +250,11 @@ class raw_png_processor(object):
         print(f'{len(self.actions)} classes in total: {self.actions}')
 
         for png_dir in tqdm(png_dirs):
-            mat_path = os.path.join(self.output_dir, f'{png_dir}.mat')
+            png_abs_dir = os.path.join(self.raw_png_root, png_dir)
+            mat_path = os.path.join(png_abs_dir, f'reduced_data_N{noise_factor}.mat')
             if os.path.exists(mat_path):
                 continue
 
-            png_abs_dir = os.path.join(self.raw_png_root, png_dir)
             frames = load_frames(png_abs_dir, output_size=resize)
             if noise_factor is not None:
                 frames = frames + 255 * noise_factor * torch.randn_like(frames)

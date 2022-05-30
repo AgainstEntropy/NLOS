@@ -8,10 +8,10 @@ model_configs:
     - 32
 
 dataset_configs:
-  dataset_root: /mnt/cfs/wangyh/blender/blank_wall/datasets/
-  raw_data_root: /mnt/cfs/wangyh/blender/blank_wall/output_random/
-  name: random
-  preprocess: false
+  dataset_root: /mnt/cfs/wangyh/blender/blank_wall/raw_pngs/
+  raw_data_root: /mnt/cfs/wangyh/blender/blank_wall/raw_pngs/
+  name: variety
+  normalize: false
   fig_resize:
     - 128
     - 64

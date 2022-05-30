@@ -30,13 +30,6 @@ def load_frames(
         output_size: Union[None, Tuple[int, int]] = None,
         rgb_only=True
 ) -> torch.Tensor:
-    """
-
-    :param root:
-    :param frame_range: (start frame, end_frame), not include endpoint.
-    :param output_size:
-    :return:
-    """
     # TODO:
     frame_list = sorted([f for f in os.listdir(root) if f.endswith('.png')])
     if frame_range is not None:
