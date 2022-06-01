@@ -13,6 +13,8 @@ import torch.nn.functional as F
 from torch.cuda.amp import autocast
 from tqdm import tqdm
 
+from my_utils import models
+
 
 class AverageMeter(object):
     """Computes and stores the average and current value"""
@@ -100,3 +102,21 @@ def get_cls_from_position(path: str):
     position = np.array(list(config['armature']['properties']['position'].values()))
     distances = [np.linalg.norm(position - pos) for pos in candidate_pos]
     return np.argmin(distances)
+
+
+def load_model(run_name: str,
+               log_dir: str = '/home/wangyh/01-Projects/01-NLOS/test_runs/',
+               ckpt_name: str = 'best') -> torch.nn.Module:
+    run_dir = os.path.join(log_dir, run_name)
+    checkpoint = torch.load(os.path.join(run_dir, f'checkpoints/{ckpt_name}.pth'))
+    with open(os.path.join(run_dir, 'configs.yaml'), 'r') as stream:
+        run_config = yaml.load(stream, Loader=yaml.FullLoader)
+    num_classes = {'action': 8, 'position': 5}[run_config['train_configs']['class_type']]
+
+    print('best val acc is:', checkpoint['best_val_acc'].item())
+    model = models.NLOS_Conv(num_classes=num_classes, **run_config['model_configs'])
+    new_state_dict = {k.replace('module.', ''): v for k, v in checkpoint['model'].items()}
+    model.load_state_dict(new_state_dict)
+    print('Successfully load model parameters!')
+
+    return model

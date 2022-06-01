@@ -16,6 +16,7 @@ dataset_configs:
     - 128
     - 64
   reduced_mode: W
+  mat_name: N0
   train_ratio: 0.8
 
 loader_kwargs:

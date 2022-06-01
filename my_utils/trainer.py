@@ -25,7 +25,7 @@ from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms as T
 
 from my_utils import models
-from my_utils.data.dataset import make_dataset
+from my_utils.data.dataset import split_dataset
 from my_utils.utils import AverageMeter, correct_rate
 
 cudnn.benchmark = True
@@ -161,12 +161,13 @@ class Trainer(object):
             trans = T.Compose([trans, T.Normalize(self.dataset_cfgs['mean'], self.dataset_cfgs['std'])])
 
         if self.train_cfgs['mode'] == 'train':
-            train_dataset, val_dataset = make_dataset(dataset_root=dataset_dir,
-                                                      cls_mode=self.train_cfgs['class_type'],
-                                                      phase='train',
-                                                      ratio=self.dataset_cfgs['train_ratio'],
-                                                      reduced_mode=self.dataset_cfgs['reduced_mode'],
-                                                      transform=trans)
+            train_dataset, val_dataset = split_dataset(dataset_root=dataset_dir,
+                                                       cls_mode=self.train_cfgs['class_type'],
+                                                       phase='train',
+                                                       ratio=self.dataset_cfgs['train_ratio'],
+                                                       reduced_mode=self.dataset_cfgs['reduced_mode'],
+                                                       mat_name=self.dataset_cfgs['mat_name'],
+                                                       transform=trans)
 
             if self.dist_cfgs['distributed']:
                 train_sampler = DistributedSampler(train_dataset, shuffle=True)
@@ -180,18 +181,18 @@ class Trainer(object):
             return (train_loader, train_sampler), (val_loader, val_sampler)
 
         elif self.train_cfgs['mode'] == 'test':
-            test_dataset = make_dataset(dataset_root=dataset_dir,
-                                        cls_mode=self.train_cfgs['class_type'],
-                                        phase='test',
-                                        reduced_mode=self.dataset_cfgs['reduced_mode'],
-                                        transform=trans)
+            test_dataset = split_dataset(dataset_root=dataset_dir,
+                                         cls_mode=self.train_cfgs['class_type'],
+                                         phase='test',
+                                         reduced_mode=self.dataset_cfgs['reduced_mode'],
+                                         transform=trans)
             test_sampler = DistributedSampler(test_dataset, shuffle=True) if self.dist_cfgs['distributed'] else None
             test_loader = DataLoader(test_dataset, **self.loader_kwargs, drop_last=False)
             return test_loader, test_sampler
 
     def _build_model(self):
         if self.train_cfgs['class_type'] == 'action':
-            self.model_cfgs['num_classes'] = 5
+            self.model_cfgs['num_classes'] = 8
         elif self.train_cfgs['class_type'] == 'position':
             self.model_cfgs['num_classes'] = 5
         self.model = models.NLOS_Conv(**self.model_cfgs)
@@ -275,6 +276,9 @@ class Trainer(object):
                     or (epoch + 1) == self.schedule_cfgs['max_epoch']:
                 checkpoint_path = os.path.join(self.ckpt_dir, f"epoch_{(epoch + 1)}.pth")
                 self.save_checkpoint(checkpoint_path)
+
+        if self.dist_cfgs['local_rank'] == 0:
+            wandb.finish()
 
         if self.dist_cfgs['distributed']:
             distributed.destroy_process_group()

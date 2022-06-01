@@ -19,7 +19,7 @@ from my_utils.utils import get_cls_from_position
 
 class MyDataset(Dataset):
     def __init__(self, dataset_root, reduce_mode='W', transform=None,
-                 mat_name='NNone', cls_mode='action'):
+                 mat_name='N0', cls_mode='action'):
         assert reduce_mode in 'HW'
         self.reduce_mode = reduce_mode
         self.dataset_root = dataset_root
@@ -43,7 +43,7 @@ class MyDataset(Dataset):
             if os.path.exists(mat_abs_path):
                 mat_paths.append(mat_abs_path)
                 if self.cls_mode == 'action':
-                    classes = ['Clap', 'Crouch to Stand', 'Dance', 'Idle', 'Jump']
+                    classes = ['Clap', 'Crouch to Stand', 'Dance', 'Idle', 'Jump', 'Kick', 'Punch', 'Sit']
                     cls_to_idx = dict(zip(classes, range(len(classes))))
                     cls_idx = cls_to_idx[get_configs(png_abs_dir)['action']]
                 elif self.cls_mode == 'position':
@@ -65,16 +65,17 @@ class MyDataset(Dataset):
         return len(self.data)
 
 
-def make_dataset(
+def split_dataset(
         dataset_root: str,
         cls_mode: str = 'action',
         phase: str = 'train',
         ratio: float = 0.8,
         reduced_mode='W',
+        mat_name='N0',
         transform=None
 ):
     full_dataset = MyDataset(dataset_root=dataset_root, reduce_mode=reduced_mode,
-                             transform=transform, cls_mode=cls_mode)
+                             transform=transform, mat_name=mat_name, cls_mode=cls_mode)
     if phase == 'train':
         train_size = int(len(full_dataset) * ratio)
         val_size = len(full_dataset) - train_size
@@ -111,7 +112,6 @@ def build_dataset(png_root='/mnt/cfs/wangyh/blender/blank_wall/output_random',
         save_dict = {"reduce_H": reduce_H.cpu().numpy(),
                      "reduce_W": reduce_W.cpu().numpy()}
         savemat(mat_path, save_dict)
-
 
 
 def check_dataset(check_root='/mnt/cfs/wangyh/blender/blank_wall/output_variety',
@@ -203,7 +203,7 @@ class raw_png_processor(object):
             self.raw_png_root = self.raw_png_root + '_unseen'
         assert os.path.exists(self.raw_png_root)
 
-        self.actions = ['Clap', 'Crouch to Stand', 'Dance', 'Idle', 'Jump']
+        self.actions = ['Clap', 'Crouch to Stand', 'Dance', 'Idle', 'Jump', 'Kick', 'Punch', 'Sit']
 
     def check_data(self):
         floors = {
@@ -222,6 +222,8 @@ class raw_png_processor(object):
         png_dirs = os.listdir(self.raw_png_root)
         for png_dir in tqdm(png_dirs):
             abs_dir = os.path.join(self.raw_png_root, png_dir)
+            if not os.path.isdir(abs_dir):
+                continue
             config = get_configs(abs_dir)
             if config['render_state'] == 'finish':
                 png_num = len([f for f in os.listdir(os.path.join(self.raw_png_root, abs_dir)) if f.endswith('.png')])
@@ -242,7 +244,7 @@ class raw_png_processor(object):
             f.writelines(completed_dirs)
 
     def build_dataset(self,
-                      noise_factor: float = None,
+                      noise_factor: float,
                       resize=None):
         with open(self.result_file, mode='r') as f:
             png_dirs = [line.strip() for line in f.readlines()]
@@ -256,8 +258,7 @@ class raw_png_processor(object):
                 continue
 
             frames = load_frames(png_abs_dir, output_size=resize)
-            if noise_factor is not None:
-                frames = frames + 255 * noise_factor * torch.randn_like(frames)
+            frames = frames + 255 * noise_factor * torch.randn_like(frames)
             frames_sub_mean = sub_mean(frames)
             reduce_H, reduce_W = reduce(frames_sub_mean)  # (W or H, T, RGB)
             save_dict = {"reduce_H": reduce_H.cpu().numpy(),

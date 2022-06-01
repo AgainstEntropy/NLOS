@@ -51,6 +51,7 @@ if __name__ == '__main__':
 
     parser.add_argument('-dn', '--dataset_name', type=str, default='variety')
     parser.add_argument('--reduced_mode', type=str, choices=['H', 'W', ''], default='W')
+    parser.add_argument('--mat_name', type=str, choices=['N0', 'N0.05'], default='N0')
 
     parser.add_argument('-b', '--batch_size', type=int, default=64)
     parser.add_argument('-r', '--resume', action='store_true', help='load previously saved checkpoint')
@@ -61,6 +62,7 @@ if __name__ == '__main__':
     parser.add_argument('-wd', '--weight_decay', type=float, default=3.0e-2)
 
     parser.add_argument('-T', '--cos_T', type=int, default=25)
+    parser.add_argument('--cos_iters', type=int, default=2)
 
     parser.add_argument('-log', '--log_dir', type=str, default='test_runs', help='where to log train results')
     parser.add_argument('-g', '--gpu_ids', required=True, type=lambda x: x.replace(" ", ""), default='0,1',
@@ -79,6 +81,7 @@ if __name__ == '__main__':
 
     config['dataset_configs']['name'] = args.dataset_name
     config['dataset_configs']['reduced_mode'] = args.reduced_mode
+    config['dataset_configs']['mat_name'] = args.mat_name
 
     config['train_configs']['batch_size'] = args.batch_size
     config['train_configs']['resume'] = args.resume
@@ -89,6 +92,7 @@ if __name__ == '__main__':
     config['optim_kwargs']['weight_decay'] = args.weight_decay
 
     config['schedule_configs']['cos_T'] = args.cos_T
+    config['schedule_configs']['cos_iters'] = args.cos_iters
 
     config['distributed_configs']['device_ids'] = args.gpu_ids
     config['distributed_configs']['port'] = args.port
