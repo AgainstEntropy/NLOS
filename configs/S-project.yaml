@@ -1,0 +1,63 @@
+model_configs:
+  kernel_size: 7
+  depths:
+    - 4
+    - 1
+  dims:
+    - 16
+    - 32
+
+dataset_configs:
+  dataset_root: /mnt/lustre/wangyihao/nlos_raw_pngs/
+  raw_data_root: /mnt/lustre/wangyihao/nlos_raw_pngs/
+  name: train
+  normalize: false
+  fig_resize:
+    - 128
+    - 64
+  reduced_mode: H
+  mat_name: N0
+  train_ratio: 0.8
+
+loader_kwargs:
+#  batch_size: 512
+#  shuffle: true
+  num_workers: 4
+  pin_memory: true
+#  drop_last: true
+  prefetch_factor: 4
+  persistent_workers: true
+
+train_configs:
+  resume: false
+  resume_path: null
+  mode: train
+  class_type: action
+  batch_size: 32
+  seed: 1026
+  device: cuda:2
+  amp: true
+
+optim_kwargs:
+  optimizer: AdamW
+  lr: 1e-4
+  weight_decay: 3.0e-2
+
+schedule_configs:
+  schedule_type: cosine_warm
+  max_epoch: 90
+  cos_T: 25
+  cos_mul: 2
+  cos_iters: 2
+
+distributed_configs:
+  distributed: false
+  gpu_ids: 0,1
+  world_size: 1
+  local_rank: 0
+  port: 4250
+
+log_configs:
+  log_dir: test_runs
+  save_epoch_interval: 5
+  snapshot_interval: 100

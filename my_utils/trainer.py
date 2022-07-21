@@ -88,7 +88,7 @@ class Trainer(object):
         self.ckpt_dir = os.path.join(self.log_dir, 'checkpoints')
         os.makedirs(self.ckpt_dir, exist_ok=True)
         if self.dist_cfgs['local_rank'] == 0:
-            self.writer = SummaryWriter(log_dir=self.log_dir)
+            # self.writer = SummaryWriter(log_dir=self.log_dir)
             with open(os.path.join(self.log_dir, 'configs.yaml'), 'w', encoding="utf-8") as f:
                 yaml.safe_dump(self.cfg, f, default_flow_style=False, allow_unicode=True)
 
@@ -192,7 +192,7 @@ class Trainer(object):
 
     def _build_model(self):
         if self.train_cfgs['class_type'] == 'action':
-            self.model_cfgs['num_classes'] = 8
+            self.model_cfgs['num_classes'] = 20
         elif self.train_cfgs['class_type'] == 'position':
             self.model_cfgs['num_classes'] = 5
         self.model = models.NLOS_Conv(**self.model_cfgs)
@@ -254,13 +254,13 @@ class Trainer(object):
 
             if self.dist_cfgs['local_rank'] == 0:
                 for i, param_group in enumerate(self.optimizer.param_groups):
-                    self.writer.add_scalar(tag=f'optimizer/lr_group_{i}',
-                                           scalar_value=param_group['lr'],
-                                           global_step=epoch)
-                    wandb.log({f"optimizer/lr_group_{i}": param_group['lr']})
+                    # self.writer.add_scalar(tag=f'optimizer/lr_group_{i}',
+                    #                        scalar_value=param_group['lr'],
+                    #                        global_step=epoch)
+                    wandb.log({f"optimizer/lr_group_{i}": param_group['lr']}, step=epoch+1)
 
-                self.writer.add_scalars('Metric/acc', {'train': train_acc, 'val': val_acc}, epoch + 1)
-                self.writer.add_scalars('Metric/loss', {'train': train_loss, 'val': val_loss}, epoch + 1)
+                # self.writer.add_scalars('Metric/acc', {'train': train_acc, 'val': val_acc}, epoch + 1)
+                # self.writer.add_scalars('Metric/loss', {'train': train_loss, 'val': val_loss}, epoch + 1)
 
                 wandb.log({
                     'Metric/acc/train': train_acc,
@@ -268,7 +268,7 @@ class Trainer(object):
                     'Metric/acc/best_acc': self.val_metrics['best_acc'],
                     'Metric/loss/train': train_loss,
                     'Metric/loss/val': val_loss
-                })
+                }, step=epoch+1)
 
             self.scheduler.step()
 

@@ -3,8 +3,10 @@
 # @Author  : WangYihao
 # @File    : model.py
 
+from typing import Tuple, Optional, Callable, List, Type, Any, Union
+
 import torch
-from torch import nn
+from torch import nn, Tensor
 import torch.nn.functional as F
 
 
@@ -117,3 +119,176 @@ class GAP(nn.Module):
 
     def forward(self, x):
         return self.avg_pool(x).squeeze()  # (N, C, H, W) -> (N, C)
+
+
+class Conv2Plus1D(nn.Sequential):
+
+    def __init__(
+            self,
+            in_planes: int,
+            out_planes: int,
+            midplanes: int,
+            stride: int = 1,
+            padding: int = 1
+    ) -> None:
+        super(Conv2Plus1D, self).__init__(
+            nn.Conv3d(in_planes, midplanes, kernel_size=(1, 3, 3),
+                      stride=(1, stride, stride), padding=(0, padding, padding),
+                      bias=False),
+            nn.BatchNorm3d(midplanes),
+            nn.ReLU(inplace=True),
+            nn.Conv3d(midplanes, out_planes, kernel_size=(3, 1, 1),
+                      stride=(stride, 1, 1), padding=(padding, 0, 0),
+                      bias=False))
+
+    @staticmethod
+    def get_downsample_stride(stride: int) -> Tuple[int, int, int]:
+        return stride, stride, stride
+
+
+class R2Plus1DBlock(nn.Module):
+    def __init__(
+            self,
+            inplanes: int,
+            planes: int,
+            conv_builder: nn.Module,
+            stride: int = 1,
+            downsample: Optional[nn.Module] = None,
+    ) -> None:
+        midplanes = (inplanes * planes * 3 * 3 * 3) // (inplanes * 3 * 3 + 3 * planes)
+
+        super(R2Plus1DBlock, self).__init__()
+        self.conv1 = nn.Sequential(
+            conv_builder(inplanes, planes, midplanes, stride),
+            nn.BatchNorm3d(planes),
+            nn.ReLU(inplace=True)
+        )
+        self.conv2 = nn.Sequential(
+            conv_builder(planes, planes, midplanes),
+            nn.BatchNorm3d(planes)
+        )
+        self.relu = nn.ReLU(inplace=True)
+        self.downsample = downsample
+        self.stride = stride
+
+    def forward(self, x: Tensor) -> Tensor:
+        residual = x
+
+        out = self.conv1(x)
+        out = self.conv2(out)
+        if self.downsample is not None:
+            residual = self.downsample(x)
+
+        out += residual
+        out = self.relu(out)
+
+        return out
+
+
+class R2Plus1dStem(nn.Sequential):
+    """R(2+1)D stem is different than the default one as it uses separated 3D convolution
+    """
+
+    def __init__(self, stem_in: int = 8, stem_out: int = 16) -> None:
+        super(R2Plus1dStem, self).__init__(
+            nn.Conv3d(3, stem_in, kernel_size=(1, 7, 7),
+                      stride=(1, 2, 2), padding=(0, 3, 3),
+                      bias=False),
+            nn.BatchNorm3d(stem_in),
+            nn.ReLU(inplace=True),
+            nn.Conv3d(stem_in, stem_out, kernel_size=(3, 1, 1),
+                      stride=(1, 1, 1), padding=(1, 0, 0),
+                      bias=False),
+            nn.BatchNorm3d(stem_out),
+            nn.ReLU(inplace=True))
+
+
+class NLOS_r21d(nn.Module):
+
+    def __init__(
+            self,
+            layers: List[int],
+            channels: List[int],
+            block: Type[R2Plus1DBlock] = R2Plus1DBlock,
+            conv_maker: Type[Conv2Plus1D] = Conv2Plus1D,
+            stem: Callable[..., nn.Module] = R2Plus1dStem,
+            num_classes: int = 20
+    ) -> None:
+        """Generic resnet video generator.
+
+        Args:
+            block: resnet building block. Defaults to R2Plus1DBlock.
+            conv_maker: generator function for each layer. Defaults to Conv2Plus1D.
+            layers: number of blocks per layer. Defaults to [2,2,2,2].
+            stem: module specifying the ResNet stem. Defaults to R2Plus1dStem.
+            num_classes: Dimension of the final FC layer. Defaults to 20.
+        """
+        super(NLOS_r21d, self).__init__()
+        assert len(layers) == len(channels)
+        self.num_blocks = len(layers)
+        self.inplanes = 16
+        strides = [1, 2, 2, 2]
+
+        self.stem = stem(stem_in=8, stem_out=channels[0])
+
+        self.blocks = nn.ModuleList()
+        for i in range(self.num_blocks):
+            self.blocks.append(self._make_layer(block, conv_maker, channels[i], layers[i], stride=strides[i]))
+
+        self.avgpool = nn.AdaptiveAvgPool3d((1, 1, 1))
+        self.fc = nn.Linear(channels[-1], num_classes)
+
+        # init weights
+        self._initialize_weights()
+
+    def forward(self, x: Tensor) -> Tensor:
+        x = self.stem(x)
+
+        for block in self.blocks:
+            x = block(x)
+
+        x = self.avgpool(x)
+        # Flatten the layer to fc
+        x = x.flatten(1)
+        x = self.fc(x)
+
+        return x
+
+    def _make_layer(
+            self,
+            block: Type[R2Plus1DBlock],
+            conv_builder: Type[Conv2Plus1D],
+            planes: int,
+            blocks: int,
+            stride: int = 1
+    ) -> nn.Sequential:
+        downsample = None
+
+        if stride != 1 or self.inplanes != planes:
+            ds_stride = conv_builder.get_downsample_stride(stride)
+            downsample = nn.Sequential(
+                nn.Conv3d(self.inplanes, planes,
+                          kernel_size=1, stride=ds_stride, bias=False),
+                nn.BatchNorm3d(planes)
+            )
+        layers = [block(self.inplanes, planes, conv_builder, stride, downsample)]
+
+        self.inplanes = planes
+        for i in range(1, blocks):
+            layers.append(block(self.inplanes, planes, conv_builder))
+
+        return nn.Sequential(*layers)
+
+    def _initialize_weights(self) -> None:
+        for m in self.modules():
+            if isinstance(m, nn.Conv3d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_out',
+                                        nonlinearity='relu')
+                if m.bias is not None:
+                    nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.BatchNorm3d):
+                nn.init.constant_(m.weight, 1)
+                nn.init.constant_(m.bias, 0)
+            elif isinstance(m, nn.Linear):
+                nn.init.normal_(m.weight, 0, 0.01)
+                nn.init.constant_(m.bias, 0)
