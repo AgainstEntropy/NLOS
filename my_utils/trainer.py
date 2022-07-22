@@ -21,7 +21,7 @@ from torch.cuda.amp import GradScaler, autocast
 from torch.backends import cudnn
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DistributedSampler, DataLoader
-from torch.utils.tensorboard import SummaryWriter
+# from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms as T
 
 from my_utils import models
@@ -209,7 +209,7 @@ class Trainer(object):
         elif self.train_cfgs['class_type'] == 'position':
             self.model_cfgs['num_classes'] = 5
 
-        model_type = models.NLOS_r21d if self.train_cfgs['modal'] == 'video' else models.NLOS_Conv
+        model_type = models.my_NLOS_r21d if self.train_cfgs['modal'] == 'video' else models.NLOS_Conv
         self.model = model_type(**self.model_cfgs)
         self.model.to(self.device)
 

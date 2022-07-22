@@ -2,7 +2,7 @@
 # @Date    : 2021/12/18 19:37
 # @Author  : WangYihao
 # @File    : model.py
-
+import math
 from typing import Tuple, Optional, Callable, List, Type, Any, Union
 
 import torch
@@ -116,13 +116,89 @@ class LayerNorm(nn.Module):
             return x
 
 
-class GAP(nn.Module):
-    def __init__(self):
-        super(GAP, self).__init__()
-        self.avg_pool = nn.AdaptiveAvgPool2d(output_size=(1, 1))
+class my_NLOS_r21d(nn.Module):
+    def __init__(
+            self,
+            in_chans: int = 3,
+            num_classes: int = 20,
+            kernel_size: int = 5,
+            depths: Tuple = (2, 1),
+            dims: Tuple = (16, 32)
+    ) -> None:
+        super(my_NLOS_r21d, self).__init__()
 
-    def forward(self, x):
-        return self.avg_pool(x).squeeze()  # (N, C, H, W) -> (N, C)
+        assert len(depths) == len(dims)
+        self.num_stages = len(dims)
+
+        self.stages = nn.ModuleList()
+        stem_layer = self.r21d_block(in_chans, dims[0], kernel_size)
+        self.stages.append(stem_layer)
+
+        for i in range(self.num_stages - 1):
+            if depths[i] - 1 > 0:
+                self.stages.append(nn.Sequential(
+                    *[self.r21d_block(dims[i], dims[i], kernel_size) for _ in range(depths[i] - 1)]
+                ))
+            if i < self.num_stages - 1:
+                self.stages.append(self.r21d_block(dims[i], dims[i + 1], kernel_size))
+
+        self.GAP = nn.AdaptiveAvgPool3d(output_size=(1, 1, 1))
+        self.head = nn.Linear(dims[-1], num_classes)
+        self.loss_func = nn.CrossEntropyLoss()
+
+        self.apply(self._init_weights)
+
+    def _init_weights(self, m):
+        if isinstance(m, nn.Conv3d):
+            # trunc_normal_(m.weight, std=.02)
+            nn.init.kaiming_normal_(m.weight)
+            if m.bias is not None:
+                nn.init.constant_(m.bias, 0)
+        elif isinstance(m, nn.BatchNorm3d):
+            nn.init.constant_(m.weight, 1)
+            nn.init.constant_(m.bias, 0)
+        elif isinstance(m, nn.Linear):
+            nn.init.normal_(m.weight, 0, 0.01)
+            nn.init.constant_(m.bias, 0)
+
+    def r21d_block(self,
+                   in_chans: int,
+                   out_chans: int,
+                   ks: int = 5):
+        r"""
+        Args:
+            in_chans (int): Number of input image channels.
+            out_chans (int): Number of output image channels.
+            ks (int): Kernel size of Conv layer. Default: 7
+        """
+        mid_chans = in_chans if in_chans == out_chans else int(math.sqrt(in_chans * out_chans))
+        stride = 1 if in_chans == out_chans else 2
+        return nn.Sequential(
+            nn.Conv3d(in_chans, mid_chans, bias=False,
+                      kernel_size=(1, ks, ks),
+                      stride=(1, 1, 1),
+                      padding=(0, 2, 2)),
+            nn.BatchNorm3d(mid_chans),
+            nn.ReLU(inplace=True),
+            nn.Conv3d(mid_chans, out_chans, bias=False,
+                      kernel_size=(ks, 1, 1),
+                      stride=(1, stride, stride),
+                      padding=(2, 0, 0)),
+            nn.BatchNorm3d(out_chans),
+            nn.ReLU(inplace=True),
+        )
+
+    def forward(self, xx):
+        x, labels = xx
+        for stage in self.stages:
+            x = stage(x)  # (N, C[i], H, W) -> (N, C[i+1], H, W)
+        x = self.GAP(x)
+        x = x.flatten(start_dim=1)
+        scores = self.head(x)
+        loss = self.loss_func(scores, labels)
+        preds = scores.argmax(axis=1)
+
+        return loss, preds
 
 
 class Conv2Plus1D(nn.Sequential):

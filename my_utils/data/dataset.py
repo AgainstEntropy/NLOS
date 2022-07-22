@@ -72,7 +72,7 @@ class MyDataset(Dataset):
         if self.modal == 'image' and self.transform is not None:
             mat = self.transform(mat)  # (C, H, W)
         elif self.modal == 'video':
-            mat = torch.from_numpy(mat).permute(3, 0, 1, 2)  # (C, T, H, W)
+            mat = torch.from_numpy(mat)  # (C, T, H, W)
 
         return mat, self.labels[index]
 
@@ -193,7 +193,7 @@ class raw_png_processor(object):
             frames = frames + 255 * noise_factor * torch.randn_like(frames)
             frames_sub_mean = sub_mean(frames)  # (T, H, W, RGB)
             if modal == 'video':
-                save_dict = {'video': frames_sub_mean.numpy()}
+                save_dict = {'video': frames_sub_mean.numpy().permute(3, 0, 1, 2)}  # (RGB, T, H, W)
             elif modal == 'image':
                 reduce_H, reduce_W = reduce(frames_sub_mean)  # (W or H, T, RGB)
                 save_dict = {"reduce_H": reduce_H.numpy(),

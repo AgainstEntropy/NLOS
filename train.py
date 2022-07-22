@@ -45,7 +45,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="training a classifier convnet")
     parser.add_argument('-cfg', '--config', type=str, default='configs/S video.yaml')
     # parser.add_argument('-ks', '--kernel_size', type=int, default=7)
-    # parser.add_argument('--depths', type=lambda x: tuple(int(i) for i in x.split(',')), default='4,1')
+    parser.add_argument('--depths', type=lambda x: tuple(int(i) for i in x.split(',')), default='4,1')
     # parser.add_argument('--dims', type=lambda x: tuple(int(i) for i in x.split(',')), default='16,32')
     # parser.add_argument('-act', '--activation', type=str, choices=['relu', 'gelu'], default='relu')
     # parser.add_argument('-norm', '--normalization', type=str, choices=['BN', 'LN'], default='BN')
@@ -59,7 +59,7 @@ if __name__ == '__main__':
     # parser.add_argument('-ct', '--class_type', type=str, choices=['action', 'position'], required=True)
 
     # parser.add_argument('-op', '--optimizer', type=str, choices=['SGD', 'Adam', 'AdamW'], default='AdamW')
-    parser.add_argument('-lr_b', '--lr_backbone', type=float, default=1e-4)
+    parser.add_argument('-lr_b', '--lr_backbone', type=float, default=1.5e-4)
     parser.add_argument('-wd', '--weight_decay', type=float, default=5.0e-3)
 
     parser.add_argument('-T', '--cos_T', type=int, default=25)
@@ -76,7 +76,7 @@ if __name__ == '__main__':
         config = yaml.load(stream, Loader=yaml.FullLoader)
 
     # config['model_configs']['kernel_size'] = args.kernel_size
-    # config['model_configs']['depths'] = args.depths
+    config['model_configs']['depths'] = args.depths
     # config['model_configs']['dims'] = args.dims
     # config['model_configs']['act'] = args.activation
     # config['model_configs']['norm'] = args.normalization
