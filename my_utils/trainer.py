@@ -28,7 +28,7 @@ from my_utils import models
 from my_utils.data.dataset import split_dataset
 from my_utils.utils import AverageMeter, correct_rate
 
-cudnn.benchmark = True
+# cudnn.benchmark = True
 
 
 def seed_worker(worker_id):
@@ -60,6 +60,9 @@ def _set_seed(seed, deterministic=False):
 class Trainer(object):
     def __init__(self, cfg):
         tic = time.time()
+        self.dist_cfgs = cfg['distributed_configs']
+        if self.dist_cfgs['local_rank'] == 0:
+            logger.info("Loading configurations...")
         self.cfg = cfg
         self.model_cfgs = cfg['model_configs']
         self.train_cfgs = cfg['train_configs']
@@ -67,9 +70,10 @@ class Trainer(object):
         self.loader_kwargs = cfg['loader_kwargs']
         self.optim_kwargs = cfg['optim_kwargs']
         self.schedule_cfgs = cfg['schedule_configs']
-        self.dist_cfgs = cfg['distributed_configs']
         self.log_cfgs = cfg['log_configs']
 
+        if self.dist_cfgs['local_rank'] == 0:
+            logger.info("Initializing trainer...")
         if self.dist_cfgs['distributed']:
             distributed.init_process_group(backend='nccl',
                                            init_method='tcp://127.0.0.1:' + self.dist_cfgs['port'],
@@ -100,12 +104,16 @@ class Trainer(object):
         self.val_metrics = {'current_acc': 0.0, 'best_acc': 0.0,
                             'best_epoch': 0}
 
+        if self.dist_cfgs['local_rank'] == 0:
+            logger.info("Loading dataset...")
         if self.train_cfgs['mode'] == 'train':
             (self.train_loader, self.train_sampler), (self.val_loader, self.val_sampler) \
                 = self._load_dataset()
         if self.train_cfgs['mode'] == 'test':
             self.test_loader, self.test_sampler = self._load_dataset()
 
+        if self.dist_cfgs['local_rank'] == 0:
+            logger.info("Building model...")
         self._build_model()
         if self.dist_cfgs['distributed']:
             self.model = nn.SyncBatchNorm.convert_sync_batchnorm(self.model)
@@ -131,9 +139,10 @@ class Trainer(object):
         wandb_config = {
             "dataset": self.dataset_cfgs['name'],
             "class_type": self.train_cfgs['class_type'],
-            "kernel_size": self.model_cfgs['kernel_size'],
+            # "kernel_size": self.model_cfgs['kernel_size'],
             "depths": self.model_cfgs['depths'],
             "dims": self.model_cfgs['dims'],
+            "modal": self.train_cfgs['modal'],
             "batch_size": self.train_cfgs['batch_size'],
             "lr_backbone": self.optim_kwargs['lr'],
             "optimizer": self.optim_kwargs['optimizer'],
@@ -147,21 +156,25 @@ class Trainer(object):
         wandb.watch(self.model)
         config_table = PrettyTable()
         config_table.add_column('Phase', list(wandb_config))
-        config_table.add_column('Val', list(wandb_config.values()))
+        config_table.add_column('Value', list(wandb_config.values()))
 
         logger.info('\n' + config_table.get_string())
 
     def _load_dataset(self):
         dataset_dir = os.path.join(self.dataset_cfgs['dataset_root'], self.dataset_cfgs['name'])
-        trans = T.Compose([
-            T.ToTensor(),
-            T.Resize(self.dataset_cfgs['fig_resize'])
-        ])
-        if self.dataset_cfgs['normalize']:
-            trans = T.Compose([trans, T.Normalize(self.dataset_cfgs['mean'], self.dataset_cfgs['std'])])
+        if self.train_cfgs['modal'] == 'image':
+            trans = T.Compose([
+                T.ToTensor(),
+                T.Resize(self.dataset_cfgs['fig_resize'])
+            ])
+            if self.dataset_cfgs['normalize']:
+                trans = T.Compose([trans, T.Normalize(self.dataset_cfgs['mean'], self.dataset_cfgs['std'])])
+        elif self.train_cfgs['modal'] == 'video':
+            trans = None
 
         if self.train_cfgs['mode'] == 'train':
             train_dataset, val_dataset = split_dataset(dataset_root=dataset_dir,
+                                                       modal=self.train_cfgs['modal'],
                                                        cls_mode=self.train_cfgs['class_type'],
                                                        phase='train',
                                                        ratio=self.dataset_cfgs['train_ratio'],
@@ -195,7 +208,9 @@ class Trainer(object):
             self.model_cfgs['num_classes'] = 20
         elif self.train_cfgs['class_type'] == 'position':
             self.model_cfgs['num_classes'] = 5
-        self.model = models.NLOS_Conv(**self.model_cfgs)
+
+        model_type = models.NLOS_r21d if self.train_cfgs['modal'] == 'video' else models.NLOS_Conv
+        self.model = model_type(**self.model_cfgs)
         self.model.to(self.device)
 
     def _load_optimizer(self):
@@ -241,6 +256,8 @@ class Trainer(object):
         self.optim_kwargs['optimizer'] = optim_type
 
     def run(self):
+        if self.dist_cfgs['local_rank'] == 0:
+            logger.info("--- Begin to run! ---")
         for epoch in range(self.start_epoch, self.schedule_cfgs['max_epoch']):
 
             if self.dist_cfgs['distributed']:

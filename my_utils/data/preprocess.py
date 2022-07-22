@@ -9,8 +9,8 @@ def sub_mean(frames: torch.Tensor) -> torch.Tensor:
     mean_frame = frames.mean(axis=0, keepdim=True)
     frames_sub_mean = frames - mean_frame
 
-    if frames.shape[-1] == 4:
-        frames_sub_mean = frames_sub_mean[:, :, :, :3]  # (T, H, W, RGBA) -> (T, H, W, RGB)
+    # if frames.shape[-1] == 4:
+    #     frames_sub_mean = frames_sub_mean[:, :, :, :3]  # (T, H, W, RGBA) -> (T, H, W, RGB)
 
     return frames_sub_mean
 

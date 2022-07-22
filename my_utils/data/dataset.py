@@ -14,17 +14,22 @@ from tqdm import tqdm
 
 from my_utils.data.loader import load_frames, load_video
 from my_utils.data.preprocess import sub_mean, reduce
-from my_utils.utils import get_cls_from_position
+
+
+# from my_utils.utils import get_cls_from_position
 
 
 class MyDataset(Dataset):
-    def __init__(self, dataset_root, reduce_mode='W', transform=None,
-                 mat_name='N0', cls_mode='action'):
+    def __init__(self,
+                 dataset_root: str,
+                 modal='image',
+                 mat_name='N0',  # for video, mat_name is 128_N0
+                 reduce_mode='W',
+                 transform=None,
+                 cls_mode='action'):
         assert reduce_mode in 'HW'
-        self.reduce_mode = reduce_mode
         self.dataset_root = dataset_root
         self.transform = transform
-        self.mat_name = 'reduced_data_' + mat_name + '.mat'
         self.cls_mode = cls_mode
         if cls_mode == 'action':
             classes = ['Being hit', 'Clap', 'Crouch to Stand', 'Dance', 'Hanging',
@@ -33,45 +38,51 @@ class MyDataset(Dataset):
                        'Strafing', 'Throw', 'Turn around', 'Waving hands', 'Yelling']
             self.cls_to_idx = dict(zip(classes, range(len(classes))))
 
-        self.data = []
+        self.modal = modal
+        mat_modal = 'reduced_data' if modal == 'image' else 'video'
+        self.mat_name = f'{mat_modal}_' + mat_name + '.mat'
+        self.mat_paths = []
+        self.labels = []
         self.get_all_data()
 
-    def get_all_data(self):
-        print('Loading dataset:')
-        mat_paths = []
-        labels = []
+        if self.modal == 'video':
+            self.mat_key = 'video'  # (T, H, W, C)
+        elif self.modal == 'image':
+            self.mat_key = f'reduce_{reduce_mode}'  # (W, T, C)
 
+    def get_all_data(self):
         for png_dir in tqdm(os.listdir(self.dataset_root)):
             png_abs_dir = os.path.join(self.dataset_root, png_dir)
             if not os.path.isdir(png_abs_dir):
                 continue
             mat_abs_path = os.path.join(png_abs_dir, self.mat_name)
             if os.path.exists(mat_abs_path):
-                mat_paths.append(mat_abs_path)
+                self.mat_paths.append(mat_abs_path)
                 if self.cls_mode == 'action':
                     action = get_configs(png_abs_dir)['action']
                     cls_idx = self.cls_to_idx[action['class'] if type(action) == dict else action]
                 elif self.cls_mode == 'position':
                     cls_idx = get_configs(png_abs_dir)['pos_num']
-                labels.append(cls_idx)
-
-        self.data.extend(list(zip(mat_paths, labels)))
+                self.labels.append(cls_idx)
 
     def __getitem__(self, index):
-        mat_path, label = self.data[index]
-        mat = loadmat(mat_path)[f'reduce_{self.reduce_mode}']  # (W, T, C)
+        mat_path = self.mat_paths[index]
+        mat = loadmat(mat_path)[self.mat_key]  # (T, H, W, C) or (W, T, C)
 
-        if self.transform is not None:
-            mat = self.transform(mat)
+        if self.modal == 'image' and self.transform is not None:
+            mat = self.transform(mat)  # (C, H, W)
+        elif self.modal == 'video':
+            mat = torch.from_numpy(mat).permute(3, 0, 1, 2)  # (C, T, H, W)
 
-        return mat, label
+        return mat, self.labels[index]
 
     def __len__(self):
-        return len(self.data)
+        return len(self.mat_paths)
 
 
 def split_dataset(
         dataset_root: str,
+        modal: str = ' video',
         cls_mode: str = 'action',
         phase: str = 'train',
         ratio: float = 0.8,
@@ -79,7 +90,7 @@ def split_dataset(
         mat_name='N0',
         transform=None
 ):
-    full_dataset = MyDataset(dataset_root=dataset_root, reduce_mode=reduced_mode,
+    full_dataset = MyDataset(dataset_root=dataset_root, modal=modal, reduce_mode=reduced_mode,
                              transform=transform, mat_name=mat_name, cls_mode=cls_mode)
     if phase == 'train':
         train_size = int(len(full_dataset) * ratio)
@@ -158,25 +169,35 @@ class raw_png_processor(object):
             f.writelines([line + '\n' for line in completed_dirs])
 
     def build_dataset(self,
+                      modal: str = 'image',
                       noise_factor: float = 0,
                       resize=None):
+
+        assert modal in ['image', 'video']
+        if modal == 'video':
+            assert resize[0] == resize[1]
+        mat_name = 'reduced_data' if modal == 'image' else f'video_{resize[0]}'
+
         with open(self.result_file, mode='r') as f:
             png_dirs = [line.strip() for line in f.readlines()]
 
-        print(f'{len(self.actions)} classes in total: {self.actions}')
+        # print(f'{len(self.actions)} classes in total: {self.actions}')
 
         for png_dir in tqdm(png_dirs):
             png_abs_dir = os.path.join(self.raw_png_root, png_dir)
-            mat_path = os.path.join(png_abs_dir, f'reduced_data_N{noise_factor}.mat')
+            mat_path = os.path.join(png_abs_dir, f'{mat_name}_N{noise_factor}.mat')
             if os.path.exists(mat_path):
                 continue
 
             frames = load_frames(png_abs_dir, output_size=resize)
             frames = frames + 255 * noise_factor * torch.randn_like(frames)
-            frames_sub_mean = sub_mean(frames)
-            reduce_H, reduce_W = reduce(frames_sub_mean)  # (W or H, T, RGB)
-            save_dict = {"reduce_H": reduce_H.numpy(),
-                         "reduce_W": reduce_W.numpy()}
+            frames_sub_mean = sub_mean(frames)  # (T, H, W, RGB)
+            if modal == 'video':
+                save_dict = {'video': frames_sub_mean.numpy()}
+            elif modal == 'image':
+                reduce_H, reduce_W = reduce(frames_sub_mean)  # (W or H, T, RGB)
+                save_dict = {"reduce_H": reduce_H.numpy(),
+                             "reduce_W": reduce_W.numpy()}
             savemat(mat_path, save_dict)
 
 

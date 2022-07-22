@@ -23,8 +23,12 @@ class NLOS_Conv(nn.Module):
         dims (tuple(int)): Feature dimension at each stage. Default: (16, 16)
     """
 
-    def __init__(self, in_chans=3, num_classes=10, kernel_size=7,
-                 depths=(4, 1), dims=(16, 32)):
+    def __init__(self,
+                 in_chans: int = 3,
+                 num_classes: int = 20,
+                 kernel_size: int = 7,
+                 depths: Tuple = (4, 1),
+                 dims: Tuple = (16, 32)):
         super().__init__()
 
         self.num_classes = num_classes
@@ -43,7 +47,7 @@ class NLOS_Conv(nn.Module):
             if i < self.num_stages - 1:
                 self.stages.append(self.conv_block(dims[i], dims[i + 1], kernel_size))
 
-        self.GAP = GAP()
+        self.GAP = nn.AdaptiveAvgPool2d(output_size=(1, 1))
         self.head = nn.Linear(dims[-1], num_classes)
         self.loss_func = nn.CrossEntropyLoss()
 
@@ -67,16 +71,16 @@ class NLOS_Conv(nn.Module):
             nn.Conv2d(in_chans, out_chans, kernel_size, stride=1, padding='same', bias=False),
             nn.BatchNorm2d(out_chans),
             nn.LeakyReLU(negative_slope=1e-1),
-            nn.MaxPool2d(kernel_size=2)
+            # nn.MaxPool2d(kernel_size=2)
         )
         return block
 
     def forward(self, xx):
-        inputs, labels = xx
-        x = inputs.clone()
+        x, labels = xx
         for stage in self.stages:
             x = stage(x)  # (N, C[i], H, W) -> (N, C[i+1], H, W)
         x = self.GAP(x)
+        x = x.flatten(start_dim=1)
         scores = self.head(x)
         loss = self.loss_func(scores, labels)
         preds = scores.argmax(axis=1)
@@ -207,8 +211,8 @@ class NLOS_r21d(nn.Module):
 
     def __init__(
             self,
-            layers: List[int],
-            channels: List[int],
+            depths: List[int],
+            dims: List[int],
             block: Type[R2Plus1DBlock] = R2Plus1DBlock,
             conv_maker: Type[Conv2Plus1D] = Conv2Plus1D,
             stem: Callable[..., nn.Module] = R2Plus1dStem,
@@ -219,29 +223,32 @@ class NLOS_r21d(nn.Module):
         Args:
             block: resnet building block. Defaults to R2Plus1DBlock.
             conv_maker: generator function for each layer. Defaults to Conv2Plus1D.
-            layers: number of blocks per layer. Defaults to [2,2,2,2].
+            depths: number of blocks per layer. Defaults to [2,2,2,2].
             stem: module specifying the ResNet stem. Defaults to R2Plus1dStem.
             num_classes: Dimension of the final FC layer. Defaults to 20.
         """
         super(NLOS_r21d, self).__init__()
-        assert len(layers) == len(channels)
-        self.num_blocks = len(layers)
+        assert len(depths) == len(dims)
+        self.num_blocks = len(depths)
         self.inplanes = 16
         strides = [1, 2, 2, 2]
 
-        self.stem = stem(stem_in=8, stem_out=channels[0])
+        self.stem = stem(stem_in=8, stem_out=dims[0])
 
         self.blocks = nn.ModuleList()
         for i in range(self.num_blocks):
-            self.blocks.append(self._make_layer(block, conv_maker, channels[i], layers[i], stride=strides[i]))
+            self.blocks.append(self._make_layer(block, conv_maker, dims[i], depths[i], stride=strides[i]))
 
         self.avgpool = nn.AdaptiveAvgPool3d((1, 1, 1))
-        self.fc = nn.Linear(channels[-1], num_classes)
+        self.fc = nn.Linear(dims[-1], num_classes)
+
+        self.loss_func = nn.CrossEntropyLoss()
 
         # init weights
         self._initialize_weights()
 
-    def forward(self, x: Tensor) -> Tensor:
+    def forward(self, xx: Union[Tensor]):
+        x, labels = xx
         x = self.stem(x)
 
         for block in self.blocks:
@@ -249,10 +256,13 @@ class NLOS_r21d(nn.Module):
 
         x = self.avgpool(x)
         # Flatten the layer to fc
-        x = x.flatten(1)
-        x = self.fc(x)
+        x = x.flatten(start_dim=1)
+        scores = self.fc(x)
 
-        return x
+        loss = self.loss_func(scores, labels)
+        preds = scores.argmax(axis=1)
+
+        return loss, preds
 
     def _make_layer(
             self,
