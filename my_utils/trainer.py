@@ -179,7 +179,7 @@ class Trainer(object):
                                                        phase='train',
                                                        ratio=self.dataset_cfgs['train_ratio'],
                                                        reduced_mode=self.dataset_cfgs['reduced_mode'],
-                                                       mat_name=self.dataset_cfgs['mat_name'],
+                                                       file_name=self.dataset_cfgs['file_name'],
                                                        transform=trans)
 
             if self.dist_cfgs['distributed']:
@@ -367,12 +367,12 @@ class Trainer(object):
         if self.dist_cfgs['local_rank'] == 0:
             pbar.close()
 
-            logger.info(
-                f"train epoch {epoch + 1}/{self.schedule_cfgs['max_epoch']}  "
-                f"Iter {self.steps}/{len_loader * self.schedule_cfgs['max_epoch']}  "
-                f"----  "
-                f"loss {loss_recorder.avg:.4f} "
-                f"top1_acc {acc_recorder.avg:.2%}")
+            # logger.info(
+            #     f"train epoch {epoch + 1}/{self.schedule_cfgs['max_epoch']}  "
+            #     f"Iter {self.steps}/{len_loader * self.schedule_cfgs['max_epoch']}  "
+            #     f"----  "
+            #     f"loss {loss_recorder.avg:.4f} "
+            #     f"top1_acc {acc_recorder.avg:.2%}")
 
         return loss_recorder.avg, acc_recorder.avg
 
@@ -429,11 +429,11 @@ class Trainer(object):
         if self.dist_cfgs['local_rank'] == 0:
             pbar.close()
 
-            logger.info(
-                f"val epoch {epoch + 1}/{self.schedule_cfgs['max_epoch']}  "
-                f"------  "
-                f"loss {loss_recorder.avg:.4f}  "
-                f"top1_acc {acc_recorder.avg:.2%}")
+            # logger.info(
+            #     f"val epoch {epoch + 1}/{self.schedule_cfgs['max_epoch']}  "
+            #     f"------  "
+            #     f"loss {loss_recorder.avg:.4f}  "
+            #     f"top1_acc {acc_recorder.avg:.2%}")
 
             self.val_metrics['current_acc'] = acc_recorder.avg
             if acc_recorder.avg > self.val_metrics['best_acc']:
@@ -448,9 +448,7 @@ class Trainer(object):
             res_table.add_column('Val', [f"{self.val_metrics['current_acc']:.2%}",
                                          f"{self.val_metrics['best_acc']:.2%}",
                                          self.val_metrics['best_epoch']])
-
-            logger.info(f'Performance on validation set at epoch: {epoch + 1}')
-            logger.info('\n' + res_table.get_string())
+            logger.info(f'Performance on validation set at epoch: {epoch + 1}\n' + res_table.get_string())
 
         return loss_recorder.avg, acc_recorder.avg
 

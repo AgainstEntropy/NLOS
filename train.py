@@ -18,7 +18,7 @@ def main(cfg):
     log_cfgs = cfg['log_configs']
 
     os.makedirs(log_cfgs['log_dir'], exist_ok=True)
-    os.environ["CUDA_VISIBLE_DEVICES"] = dist_cfgs['device_ids']
+    # os.environ["CUDA_VISIBLE_DEVICES"] = dist_cfgs['device_ids']
     # os.environ['CUDA_LAUNCH_BLOCKING'] = '1'
 
     world_size = len(dist_cfgs['device_ids'].split(','))
@@ -27,7 +27,7 @@ def main(cfg):
     loader_cfgs['batch_size'] = train_cfgs['batch_size'] // world_size
 
     if dist_cfgs['distributed']:
-        print(f"Using devices: {dist_cfgs['device_ids']}")
+        # print(f"Using devices: {dist_cfgs['device_ids']}")
         mp.spawn(worker, nprocs=world_size, args=(cfg,))
     else:
         worker(0, cfg)
@@ -46,20 +46,20 @@ if __name__ == '__main__':
     parser.add_argument('-cfg', '--config', type=str, default='configs/S video.yaml')
     # parser.add_argument('-ks', '--kernel_size', type=int, default=7)
     parser.add_argument('--depths', type=lambda x: tuple(int(i) for i in x.split(',')), default='4,1')
-    # parser.add_argument('--dims', type=lambda x: tuple(int(i) for i in x.split(',')), default='16,32')
+    parser.add_argument('--dims', type=lambda x: tuple(int(i) for i in x.split(',')), default='16,32')
     # parser.add_argument('-act', '--activation', type=str, choices=['relu', 'gelu'], default='relu')
     # parser.add_argument('-norm', '--normalization', type=str, choices=['BN', 'LN'], default='BN')
 
     parser.add_argument('-dn', '--dataset_name', type=str, default='train')
     # parser.add_argument('--reduced_mode', type=str, choices=['H', 'W', ''], default='H')
-    # parser.add_argument('--mat_name', type=str, choices=['N0', 'N0.05', '128_N0'], default='128_N0')
+    # parser.add_argument('--file_name', type=str, choices=['N0', 'N0.05', '128_N0'], default='128_N0')
 
     parser.add_argument('-b', '--batch_size', type=int, default=64)
     # parser.add_argument('-r', '--resume', action='store_true', help='load previously saved checkpoint')
     # parser.add_argument('-ct', '--class_type', type=str, choices=['action', 'position'], required=True)
 
     # parser.add_argument('-op', '--optimizer', type=str, choices=['SGD', 'Adam', 'AdamW'], default='AdamW')
-    parser.add_argument('-lr_b', '--lr_backbone', type=float, default=1.5e-4)
+    parser.add_argument('-lr_b', '--lr_backbone', type=float, default=3e-4)
     parser.add_argument('-wd', '--weight_decay', type=float, default=5.0e-3)
 
     parser.add_argument('-T', '--cos_T', type=int, default=25)
@@ -77,13 +77,13 @@ if __name__ == '__main__':
 
     # config['model_configs']['kernel_size'] = args.kernel_size
     config['model_configs']['depths'] = args.depths
-    # config['model_configs']['dims'] = args.dims
+    config['model_configs']['dims'] = args.dims
     # config['model_configs']['act'] = args.activation
     # config['model_configs']['norm'] = args.normalization
 
     config['dataset_configs']['name'] = args.dataset_name
     # config['dataset_configs']['reduced_mode'] = args.reduced_mode
-    # config['dataset_configs']['mat_name'] = args.mat_name
+    # config['dataset_configs']['file_name'] = args.file_name
 
     config['train_configs']['batch_size'] = args.batch_size
     # config['train_configs']['resume'] = args.resume

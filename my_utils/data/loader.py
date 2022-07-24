@@ -1,7 +1,10 @@
 import os
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+import decord
+from decord import VideoReader
 import torch
+from scipy.io import loadmat
 from torchvision.io import read_video, read_image
 from torchvision.transforms.functional import resize
 
@@ -13,7 +16,6 @@ def load_video(
         frame_range: tuple = (0, 64),
         output_size: tuple = None
 ) -> torch.Tensor:
-
     vframes, _, _ = read_video(path, start_sec, end_sec, pts_unit='sec')
     end_frame = min(frame_range[1], len(vframes))
     vframes = vframes[frame_range[0]: end_frame].permute(0, 3, 1, 2)  # (T, H, W, C) -> (T, C, H, W)
@@ -52,3 +54,22 @@ def load_frames(
             frame = resize(frame, size=output_size)
         frames[i] = frame.permute(1, 2, 0)
     return frames  # (N, H, W, C)
+
+
+def load_avi(
+        filename: str,
+        output_size: Union[None, Tuple[int, int]] = None,
+        sub_mean: bool = True,
+) -> torch.Tensor:
+    # decord.bridge.set_bridge('torch')
+    vr = VideoReader(filename, width=output_size[0], height=output_size[1])
+    tensor = vr.get_batch(list(range(len(vr)))).permute(3, 0, 1, 2).type(torch.float)  # (C, T, H, W)
+    if sub_mean:
+        tensor -= tensor.mean(dim=1, keepdim=True)
+    return tensor
+
+
+def load_mat(filename: str):
+    mat = loadmat(filename)['video']
+    return torch.from_numpy(mat)
+

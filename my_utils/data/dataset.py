@@ -4,7 +4,11 @@
 # @File    : data.py
 
 import os
+import random
+import time
 
+import decord
+import mmcv
 import torch
 import yaml
 from scipy.io import savemat, loadmat
@@ -12,18 +16,24 @@ from torch.utils.data import Dataset
 from torch.utils.data.dataset import random_split
 from tqdm import tqdm
 
-from my_utils.data.loader import load_frames, load_video
+from my_utils.data.loader import load_frames, load_video, load_mat, load_avi
 from my_utils.data.preprocess import sub_mean, reduce
 
-
 # from my_utils.utils import get_cls_from_position
+
+
+classes = ['Being hit', 'Clap', 'Crouch to Stand', 'Dance', 'Hanging',
+           'Idle', 'Jump', 'Kick', 'Lying down', 'Punch',
+           'Sit', 'Spin', 'Squat', 'Stand to crouch', 'Stand to kneel',
+           'Strafing', 'Throw', 'Turn around', 'Waving hands', 'Yelling']
+cls_to_idx = dict(zip(classes, range(len(classes))))
 
 
 class MyDataset(Dataset):
     def __init__(self,
                  dataset_root: str,
                  modal='image',
-                 mat_name='N0',  # for video, mat_name is 128_N0
+                 file_name='N0',  # for video, mat_name is 128_N0
                  reduce_mode='W',
                  transform=None,
                  cls_mode='action'):
@@ -31,16 +41,16 @@ class MyDataset(Dataset):
         self.dataset_root = dataset_root
         self.transform = transform
         self.cls_mode = cls_mode
-        if cls_mode == 'action':
-            classes = ['Being hit', 'Clap', 'Crouch to Stand', 'Dance', 'Hanging',
-                       'Idle', 'Jump', 'Kick', 'Lying down', 'Punch',
-                       'Sit', 'Spin', 'Squat', 'Stand to crouch', 'Stand to kneel',
-                       'Strafing', 'Throw', 'Turn around', 'Waving hands', 'Yelling']
-            self.cls_to_idx = dict(zip(classes, range(len(classes))))
+        # if cls_mode == 'action':
+        #     classes = ['Being hit', 'Clap', 'Crouch to Stand', 'Dance', 'Hanging',
+        #                'Idle', 'Jump', 'Kick', 'Lying down', 'Punch',
+        #                'Sit', 'Spin', 'Squat', 'Stand to crouch', 'Stand to kneel',
+        #                'Strafing', 'Throw', 'Turn around', 'Waving hands', 'Yelling']
+        #     self.cls_to_idx = dict(zip(classes, range(len(classes))))
 
         self.modal = modal
         mat_modal = 'reduced_data' if modal == 'image' else 'video'
-        self.mat_name = f'{mat_modal}_' + mat_name + '.mat'
+        self.file_name = f'{mat_modal}_' + file_name + '.mat'
         self.mat_paths = []
         self.labels = []
         self.get_all_data()
@@ -55,12 +65,12 @@ class MyDataset(Dataset):
             png_abs_dir = os.path.join(self.dataset_root, png_dir)
             if not os.path.isdir(png_abs_dir):
                 continue
-            mat_abs_path = os.path.join(png_abs_dir, self.mat_name)
+            mat_abs_path = os.path.join(png_abs_dir, self.file_name)
             if os.path.exists(mat_abs_path):
                 self.mat_paths.append(mat_abs_path)
                 if self.cls_mode == 'action':
                     action = get_configs(png_abs_dir)['action']
-                    cls_idx = self.cls_to_idx[action['class'] if type(action) == dict else action]
+                    cls_idx = cls_to_idx[action['class'] if type(action) == dict else action]
                 elif self.cls_mode == 'position':
                     cls_idx = get_configs(png_abs_dir)['pos_num']
                 self.labels.append(cls_idx)
@@ -80,6 +90,33 @@ class MyDataset(Dataset):
         return len(self.mat_paths)
 
 
+class MyVideoDataset(Dataset):
+    def __init__(self,
+                 dataset_root: str,
+                 datalist_file: str = 'dataset_list.txt',
+                 modal: str = 'video',
+                 resize: tuple = (128,) * 2):
+        abs_file_path = os.path.join(dataset_root, datalist_file)
+        assert os.path.exists(abs_file_path)
+
+        self.dataset_root = dataset_root
+        self.datafile_name = {'video': 'video_I420_N0.avi', 'image': 'reduced_data.mat'}[modal]
+        self.resize = resize
+        with open(abs_file_path, mode='r') as f:
+            self.path_cls = [line.strip().split(',') for line in f.readlines()]
+
+    def __getitem__(self, index):
+        path, label = self.path_cls[index]
+        decord.bridge.set_bridge('torch')
+        tensor = load_avi(filename=os.path.join(self.dataset_root, path, self.datafile_name),
+                          output_size=self.resize,
+                          sub_mean=True)
+        return tensor, int(label)
+
+    def __len__(self):
+        return len(self.path_cls)
+
+
 def split_dataset(
         dataset_root: str,
         modal: str = ' video',
@@ -87,11 +124,14 @@ def split_dataset(
         phase: str = 'train',
         ratio: float = 0.8,
         reduced_mode='W',
-        mat_name='N0',
-        transform=None
+        file_name='N0',
+        transform=None,
 ):
-    full_dataset = MyDataset(dataset_root=dataset_root, modal=modal, reduce_mode=reduced_mode,
-                             transform=transform, mat_name=mat_name, cls_mode=cls_mode)
+    if modal == 'video':
+        full_dataset = MyVideoDataset(dataset_root)
+    elif modal == 'image':
+        full_dataset = MyDataset(dataset_root=dataset_root, modal=modal, reduce_mode=reduced_mode,
+                                 transform=transform, file_name=file_name, cls_mode=cls_mode)
     if phase == 'train':
         train_size = int(len(full_dataset) * ratio)
         val_size = len(full_dataset) - train_size
@@ -117,12 +157,13 @@ class raw_png_processor(object):
         self.actions = None
         self.raw_png_root = os.path.join(dataset_root, mode)
         assert os.path.exists(self.raw_png_root)
-        self.result_file = os.path.join(self.raw_png_root, 'render_state.txt')
+        self.render_result_file = os.path.join(self.raw_png_root, 'render_state.txt')
+        self.ds_list_file = os.path.join(self.raw_png_root, 'dataset_list.txt')
         self.mode = mode
 
     def check_data(self, resume=False):
         if resume:
-            with open(self.result_file, mode='r') as f:
+            with open(self.render_result_file, mode='r') as f:
                 completed_dirs = [line.strip() for line in f.readlines()]
                 # print(completed_dirs[:5])
         else:
@@ -164,21 +205,21 @@ class raw_png_processor(object):
         for k, v in self.data_dict.items():
             print(f'{k}\t {v}')
 
-        with open(self.result_file, mode='a+') as f:
+        with open(self.render_result_file, mode='a+') as f:
             f.truncate(0)
             f.writelines([line + '\n' for line in completed_dirs])
 
-    def build_dataset(self,
-                      modal: str = 'image',
-                      noise_factor: float = 0,
-                      resize=None):
+    def build_mat_dataset(self,
+                          modal: str = 'image',
+                          noise_factor: float = 0,
+                          resize=None):
 
         assert modal in ['image', 'video']
         if modal == 'video':
             assert resize[0] == resize[1]
         mat_name = 'reduced_data' if modal == 'image' else f'video_{resize[0]}'
 
-        with open(self.result_file, mode='r') as f:
+        with open(self.render_result_file, mode='r') as f:
             png_dirs = [line.strip() for line in f.readlines()]
 
         # print(f'{len(self.actions)} classes in total: {self.actions}')
@@ -199,6 +240,64 @@ class raw_png_processor(object):
                 save_dict = {"reduce_H": reduce_H.numpy(),
                              "reduce_W": reduce_W.numpy()}
             savemat(mat_path, save_dict)
+
+    def fix_video_dataset(self, size: int = 128):
+        with open(self.render_result_file, mode='r') as f:
+            png_dirs = [line.strip() for line in f.readlines()]
+
+        mat_name = f'video_{size}'
+        for png_dir in tqdm(png_dirs):
+            png_abs_dir = os.path.join(self.raw_png_root, png_dir)
+            mat_path = os.path.join(png_abs_dir, f'{mat_name}_N0.mat')
+
+            mat = loadmat(mat_path)['video']
+            if mat.shape == (64, size, size, 3):
+                save_dict = {'video': mat.transpose((3, 0, 1, 2))}
+                savemat(mat_path, save_dict)
+            assert mat.shape == (3, 64, size, size)
+
+    def frames2video(self, fourcc: str = 'I420'):
+        with open(self.render_result_file, mode='r') as f:
+            png_dirs = [line.strip() for line in f.readlines()]
+
+        video_name = f'video_{fourcc}'
+        for png_dir in tqdm(png_dirs):
+            png_abs_dir = os.path.join(self.raw_png_root, png_dir)
+            video_path = os.path.join(png_abs_dir, f'{video_name}_N0.avi')
+            if os.path.exists(video_path):
+                continue
+
+            frame_list = sorted([f for f in os.listdir(png_abs_dir) if f.endswith('.png')])
+            start_idx = int(frame_list[0][:-4])
+
+            mmcv.video.frames2video(
+                frame_dir=png_abs_dir,
+                video_file=video_path,
+                filename_tmpl='{:03d}.png',
+                start=start_idx, end=start_idx + 64,
+                fps=30, fourcc=fourcc,
+                show_progress=True
+            )
+
+    def build_dataset_list(self, data_type: str = 'avi'):
+        assert data_type in ['avi', 'mat']
+        file_name = {'avi': 'video_I420_N0.avi', 'mat': 'video_128_N0.mat'}[data_type]
+
+        with open(self.render_result_file, mode='r') as f:
+            png_dirs = [line.strip() for line in f.readlines()]
+
+        lines = []
+        for png_dir in tqdm(sorted(png_dirs)):
+            abs_png_dir = os.path.join(self.raw_png_root, png_dir)
+            abs_file_path = os.path.join(abs_png_dir, file_name)
+            assert os.path.exists(abs_file_path)
+            action = get_configs(abs_png_dir)['action']
+            cls_idx = cls_to_idx[action['class'] if type(action) == dict else action]
+            lines.append(f'{png_dir},{cls_idx}\n')
+
+        with open(self.ds_list_file, mode='a+') as f:
+            f.truncate(0)
+            f.writelines(lines)
 
 
 class raw_video_processor(object):
@@ -302,31 +401,30 @@ def analysis_dir_name(png_dir: str):
     return floor, rot_num, pos_num, character
 
 
-def build_dataset(png_root='/mnt/cfs/wangyh/blender/blank_wall/output_random',
-                  stat_file='/mnt/cfs/wangyh/blender/blank_wall/datasets/random/state.txt',
-                  dataset_dir='/mnt/cfs/wangyh/blender/blank_wall/datasets/random',
-                  noise_factor: float = None,
-                  resize=None):
-    with open(stat_file, mode='r') as f:
-        png_dirs = [line.strip() for line in f.readlines()]
+class speed_checker(object):
+    def __init__(self):
 
-    classes = set([line.split('/')[0] for line in png_dirs])
-    print(f'{len(classes)} classes in total: {classes}')
-    for cls in classes:
-        class_dir = os.path.join(dataset_dir, cls)
-        os.makedirs(class_dir, exist_ok=True)
+        self.method = None
+        self.dataset_root = '/mnt/lustre/wangyihao/nlos_raw_pngs/train/'
 
-    for png_dir in tqdm(png_dirs):
-        mat_path = os.path.join(dataset_dir, f'{png_dir}.mat')
-        if os.path.exists(mat_path):
-            continue
+    def load_data(self, png_dir):
+        abs_png_dir = os.path.join(self.dataset_root, png_dir)
+        if not os.path.isdir(abs_png_dir):
+            return 0
+        if 'mat' in self.method:
+            mat_path = os.path.join(abs_png_dir, 'video_128_N0.mat')
+            return load_mat(mat_path)
+        elif self.method == 'avi':
+            return load_avi(os.path.join(abs_png_dir, 'video_I420_N0.avi'), sub_mean=True, output_size=(128, 128))
 
-        png_abs_dir = os.path.join(png_root, png_dir)
-        frames = load_frames(png_abs_dir, output_size=resize)[:, :, :, :3]  # RGBA -> RGB
-        if noise_factor is not None:
-            frames = frames + 255 * noise_factor * torch.randn_like(frames)
-        frames_sub_mean = sub_mean(frames)
-        reduce_H, reduce_W = reduce(frames_sub_mean)  # (W or H, T, RGB)
-        save_dict = {"reduce_H": reduce_H.cpu().numpy(),
-                     "reduce_W": reduce_W.cpu().numpy()}
-        savemat(mat_path, save_dict)
+    def check(self, method: str, times: int = 100):
+        assert method in ['mat', 'mat_transpose', 'avi']
+        self.method = method
+        if method == 'avi':
+            decord.bridge.set_bridge('torch')
+        png_dirs = os.listdir(self.dataset_root)
+        tic = time.time()
+        for i in tqdm(range(times)):
+            mat = self.load_data(random.choice(png_dirs))
+
+        print(f"{(time.time() - tic) / times} sec are used to load a video in average.")

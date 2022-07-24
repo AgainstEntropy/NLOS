@@ -1,7 +1,7 @@
 model_configs:
 #  kernel_size: 7
   depths:
-    - 2
+    - 4
     - 1
   dims:
     - 16
@@ -16,7 +16,7 @@ dataset_configs:
     - 128
     - 64
   reduced_mode: H
-  mat_name: 128_N0
+  file_name: 128_N0
   train_ratio: 0.8
 
 loader_kwargs:
