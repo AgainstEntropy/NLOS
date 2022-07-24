@@ -1,7 +1,9 @@
+import io
 import os
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import decord
+import mmcv
 from decord import VideoReader
 import torch
 from scipy.io import loadmat
@@ -60,9 +62,16 @@ def load_avi(
         filename: str,
         output_size: Union[None, Tuple[int, int]] = None,
         sub_mean: bool = True,
+        use_tcs: bool = True
 ) -> torch.Tensor:
     # decord.bridge.set_bridge('torch')
-    vr = VideoReader(filename, width=output_size[0], height=output_size[1])
+    if use_tcs:
+        file_client = mmcv.fileio.FileClient(backend='petrel')
+        video_bytes = file_client.get(filename)
+        with io.BytesIO(video_bytes) as f:
+            vr = VideoReader(f, width=output_size[0], height=output_size[1])
+    else:
+        vr = VideoReader(filename, width=output_size[0], height=output_size[1])
     tensor = vr.get_batch(list(range(len(vr)))).permute(3, 0, 1, 2).type(torch.float)  # (C, T, H, W)
     if sub_mean:
         tensor -= tensor.mean(dim=1, keepdim=True)

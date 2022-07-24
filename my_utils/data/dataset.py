@@ -110,7 +110,8 @@ class MyVideoDataset(Dataset):
         decord.bridge.set_bridge('torch')
         tensor = load_avi(filename=os.path.join(self.dataset_root, path, self.datafile_name),
                           output_size=self.resize,
-                          sub_mean=True)
+                          sub_mean=True,
+                          use_tcs=True)
         return tensor, int(label)
 
     def __len__(self):
@@ -414,11 +415,13 @@ class speed_checker(object):
         if 'mat' in self.method:
             mat_path = os.path.join(abs_png_dir, 'video_128_N0.mat')
             return load_mat(mat_path)
-        elif self.method == 'avi':
-            return load_avi(os.path.join(abs_png_dir, 'video_I420_N0.avi'), sub_mean=True, output_size=(128, 128))
+        elif 'avi' in self.method:
+            return load_avi(os.path.join(abs_png_dir, 'video_I420_N0.avi'),
+                            sub_mean=True, output_size=(128, 128),
+                            use_tcs='tcs' in self.method)
 
     def check(self, method: str, times: int = 100):
-        assert method in ['mat', 'mat_transpose', 'avi']
+        assert method in ['mat', 'mat_transpose', 'avi', 'avi_tcs']
         self.method = method
         if method == 'avi':
             decord.bridge.set_bridge('torch')
