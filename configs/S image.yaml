@@ -1,5 +1,4 @@
 model_configs:
-  model_name: r21d
   kernel_size: 7
   depths:
     - 4
@@ -13,6 +12,10 @@ dataset_configs:
   raw_data_root: /mnt/lustre/wangyihao/nlos_raw_pngs/
   name: train
   normalize: false
+  fig_resize:
+    - 128
+    - 64
+  reduced_mode: H
   train_ratio: 0.8
 
 loader_kwargs:
@@ -25,12 +28,12 @@ loader_kwargs:
   persistent_workers: true
 
 train_configs:
-  modal: video
+  modal: image
   resume: false
   resume_path: null
   mode: train
   class_type: action
-  batch_size: 32
+  batch_size: 64
   seed: 1026
   device: cuda:0
   amp: true

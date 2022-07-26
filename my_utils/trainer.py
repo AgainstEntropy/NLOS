@@ -138,7 +138,7 @@ class Trainer(object):
     def _init_recorder(self, project_name, run_name):
         train_config = {
             "dataset": self.dataset_cfgs['name'],
-            "class_type": self.train_cfgs['class_type'],
+            # "class_type": self.train_cfgs['class_type'],
             "kernel_size": self.model_cfgs['kernel_size'],
             "depths": self.model_cfgs['depths'],
             "dims": self.model_cfgs['dims'],
@@ -178,11 +178,9 @@ class Trainer(object):
         if self.train_cfgs['mode'] == 'train':
             train_dataset, val_dataset = split_dataset(dataset_root=dataset_dir,
                                                        modal=self.train_cfgs['modal'],
-                                                       cls_mode=self.train_cfgs['class_type'],
                                                        phase='train',
                                                        ratio=self.dataset_cfgs['train_ratio'],
                                                        reduced_mode=self.dataset_cfgs['reduced_mode'],
-                                                       file_name=self.dataset_cfgs['file_name'],
                                                        transform=trans)
 
             if self.dist_cfgs['distributed']:
@@ -198,7 +196,6 @@ class Trainer(object):
 
         elif self.train_cfgs['mode'] == 'test':
             test_dataset = split_dataset(dataset_root=dataset_dir,
-                                         cls_mode=self.train_cfgs['class_type'],
                                          phase='test',
                                          reduced_mode=self.dataset_cfgs['reduced_mode'],
                                          transform=trans)
@@ -212,8 +209,15 @@ class Trainer(object):
         elif self.train_cfgs['class_type'] == 'position':
             self.model_cfgs['num_classes'] = 5
 
-        model_type = models.my_NLOS_r21d if self.train_cfgs['modal'] == 'video' else models.NLOS_Conv
-        self.model = model_type(**self.model_cfgs)
+        model_name = self.model_cfgs.pop('model_name')
+        if self.train_cfgs['modal'] == 'video':
+            model_builder = {'r21d': models.my_NLOS_r21d,
+                             '3d': models.my_NLOS_3d}[model_name]
+        elif self.train_cfgs['modal'] == 'image':
+            model_builder = models.NLOS_Conv
+            self.model_cfgs['groups'] = len(self.dataset_cfgs['reduced_mode'])
+
+        self.model = model_builder(**self.model_cfgs)
         self.model.to(self.device)
 
     def _load_optimizer(self):
@@ -252,6 +256,9 @@ class Trainer(object):
             self.scheduler = \
                 optim.lr_scheduler.CosineAnnealingWarmRestarts(self.optimizer,
                                                                T_0=self.schedule_cfgs['cos_T'], T_mult=2)
+        elif self.schedule_cfgs['schedule_type'] == 'cosine':
+            self.schedule_cfgs['max_epoch'] = self.schedule_cfgs['cos_iters'] * self.schedule_cfgs['cos_T']
+            self.scheduler = optim.lr_scheduler.CosineAnnealingLR(self.optimizer, T_max=self.schedule_cfgs['cos_T'])
 
         if self.train_cfgs['amp']:
             self.scaler = GradScaler()

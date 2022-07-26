@@ -9,11 +9,13 @@ import time
 
 import decord
 import mmcv
+import numpy as np
 import torch
 import yaml
 from scipy.io import savemat, loadmat
 from torch.utils.data import Dataset
 from torch.utils.data.dataset import random_split
+from torchvision.transforms import ToTensor
 from tqdm import tqdm
 
 from my_utils.data.loader import load_frames, load_video, load_mat, load_avi
@@ -27,6 +29,93 @@ classes = ['Being hit', 'Clap', 'Crouch to Stand', 'Dance', 'Hanging',
            'Sit', 'Spin', 'Squat', 'Stand to crouch', 'Stand to kneel',
            'Strafing', 'Throw', 'Turn around', 'Waving hands', 'Yelling']
 cls_to_idx = dict(zip(classes, range(len(classes))))
+
+
+class MyDataset_Base(Dataset):
+    def __init__(self,
+                 dataset_root: str,
+                 datalist_file: str = 'dataset_list.txt') -> None:
+        abs_file_path = os.path.join(dataset_root, datalist_file)
+        assert os.path.exists(abs_file_path)
+
+        self.dataset_root = dataset_root
+        with open(abs_file_path, mode='r') as f:
+            self.path_cls = [line.strip().split(',') for line in f.readlines()]
+
+    def __getitem__(self, index):
+        raise NotImplementedError
+
+    def __len__(self):
+        return len(self.path_cls)
+
+
+class MyDataset_image(MyDataset_Base):
+    def __init__(self,
+                 dataset_root: str,
+                 datalist_file: str = 'dataset_list.txt',
+                 reduce_mode='W',
+                 transform=None,
+                 ):
+        super(MyDataset_image, self).__init__(dataset_root=dataset_root, datalist_file=datalist_file)
+        self.datafile_name = 'reduced_data_N0.mat'
+        self.reduce_mode = reduce_mode
+        self.transform = ToTensor if transform is None else transform
+
+    def __getitem__(self, idx):
+        path, label = self.path_cls[idx]
+        mat_dict = load_mat(filename=os.path.join(self.dataset_root, path, self.datafile_name),
+                            use_tcs=True)
+        if self.reduce_mode == 'HW':
+            mat = np.dstack((mat_dict['reduce_H'], mat_dict['reduce_W']))  # (W=H, T, 2C)
+        else:
+            mat = mat_dict[f'reduce_{self.reduce_mode}']  # (W=H, T, C)
+
+        tensor = self.transform(mat)  # (C', T, H=W)
+        return tensor, int(label)
+
+
+class MyDataset_video(MyDataset_Base):
+    def __init__(self,
+                 dataset_root: str,
+                 datalist_file: str = 'dataset_list.txt',
+                 resize: tuple = (128,) * 2):
+        super(MyDataset_video, self).__init__(dataset_root=dataset_root, datalist_file=datalist_file)
+        self.datafile_name = 'video_I420_N0.avi'
+        self.resize = resize
+
+    def __getitem__(self, idx):
+        path, label = self.path_cls[idx]
+        decord.bridge.set_bridge('torch')
+        tensor = load_avi(filename=os.path.join(self.dataset_root, path, self.datafile_name),
+                          output_size=self.resize,
+                          sub_mean=True,
+                          use_tcs=True)
+        return tensor, int(label)
+
+    def __len__(self):
+        return len(self.path_cls)
+
+
+def split_dataset(
+        dataset_root: str,
+        modal: str = ' video',
+        phase: str = 'train',
+        ratio: float = 0.8,
+        reduced_mode='W',
+        transform=None,
+):
+    assert modal in ['video', 'image']
+    if modal == 'video':
+        full_dataset = MyDataset_video(dataset_root)
+    elif modal == 'image':
+        full_dataset = MyDataset_image(dataset_root=dataset_root, reduce_mode=reduced_mode, transform=transform)
+
+    if phase == 'train':
+        train_size = int(len(full_dataset) * ratio)
+        val_size = len(full_dataset) - train_size
+        return random_split(full_dataset, [train_size, val_size])
+    elif phase == 'test':
+        return full_dataset
 
 
 class MyDataset(Dataset):
@@ -88,57 +177,6 @@ class MyDataset(Dataset):
 
     def __len__(self):
         return len(self.mat_paths)
-
-
-class MyVideoDataset(Dataset):
-    def __init__(self,
-                 dataset_root: str,
-                 datalist_file: str = 'dataset_list.txt',
-                 modal: str = 'video',
-                 resize: tuple = (128,) * 2):
-        abs_file_path = os.path.join(dataset_root, datalist_file)
-        assert os.path.exists(abs_file_path)
-
-        self.dataset_root = dataset_root
-        self.datafile_name = {'video': 'video_I420_N0.avi', 'image': 'reduced_data.mat'}[modal]
-        self.resize = resize
-        with open(abs_file_path, mode='r') as f:
-            self.path_cls = [line.strip().split(',') for line in f.readlines()]
-
-    def __getitem__(self, index):
-        path, label = self.path_cls[index]
-        decord.bridge.set_bridge('torch')
-        tensor = load_avi(filename=os.path.join(self.dataset_root, path, self.datafile_name),
-                          output_size=self.resize,
-                          sub_mean=True,
-                          use_tcs=True)
-        return tensor, int(label)
-
-    def __len__(self):
-        return len(self.path_cls)
-
-
-def split_dataset(
-        dataset_root: str,
-        modal: str = ' video',
-        cls_mode: str = 'action',
-        phase: str = 'train',
-        ratio: float = 0.8,
-        reduced_mode='W',
-        file_name='N0',
-        transform=None,
-):
-    if modal == 'video':
-        full_dataset = MyVideoDataset(dataset_root)
-    elif modal == 'image':
-        full_dataset = MyDataset(dataset_root=dataset_root, modal=modal, reduce_mode=reduced_mode,
-                                 transform=transform, file_name=file_name, cls_mode=cls_mode)
-    if phase == 'train':
-        train_size = int(len(full_dataset) * ratio)
-        val_size = len(full_dataset) - train_size
-        return random_split(full_dataset, [train_size, val_size])
-    elif phase == 'test':
-        return full_dataset
 
 
 def get_configs(dir_path: str):

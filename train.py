@@ -26,8 +26,8 @@ def main(cfg):
     dist_cfgs['world_size'] = world_size
     loader_cfgs['batch_size'] = train_cfgs['batch_size'] // world_size
 
+    print("Allocating workers...")
     if dist_cfgs['distributed']:
-        # print(f"Using devices: {dist_cfgs['device_ids']}")
         mp.spawn(worker, nprocs=world_size, args=(cfg,))
     else:
         worker(0, cfg)
@@ -43,8 +43,8 @@ def worker(rank, cfg):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="training a classifier convnet")
-    parser.add_argument('-cfg', '--config', type=str, default='configs/S video.yaml')
 
+    parser.add_argument('-mn', '--model_name', type=str, choices=['r21d', '3d'], default='r21d')
     parser.add_argument('-ks', '--kernel_size', type=int, default=7)
     parser.add_argument('--depths', type=lambda x: tuple(int(i) for i in x.split(',')), default='4,1')
     parser.add_argument('--dims', type=lambda x: tuple(int(i) for i in x.split(',')), default='16,32')
@@ -52,10 +52,10 @@ if __name__ == '__main__':
     # parser.add_argument('-norm', '--normalization', type=str, choices=['BN', 'LN'], default='BN')
 
     parser.add_argument('-dn', '--dataset_name', type=str, default='train')
-    # parser.add_argument('--reduced_mode', type=str, choices=['H', 'W', ''], default='H')
+    parser.add_argument('--reduced_mode', type=str, choices=['H', 'W', 'HW'], default='H')
     # parser.add_argument('--file_name', type=str, choices=['N0', 'N0.05', '128_N0'], default='128_N0')
 
-    parser.add_argument('-m', '--modal', type=str, choices=['video, image'], default='video')
+    parser.add_argument('-m', '--modal', type=str, choices=['video', 'image'], default='video')
     parser.add_argument('-b', '--batch_size', type=int, default=128)
     # parser.add_argument('-r', '--resume', action='store_true', help='load previously saved checkpoint')
     # parser.add_argument('-ct', '--class_type', type=str, choices=['action', 'position'], required=True)
@@ -75,9 +75,12 @@ if __name__ == '__main__':
     # parser.add_argument('-log', '--log_dir', type=str, default='test_runs', help='where to log train results')
     args = parser.parse_args()
 
-    with open(args.config, 'r') as stream:
+    config_file = os.path.join('configs', f'S {args.modal}.yaml')
+    print(f'Reading config file: {config_file}')
+    with open(config_file, 'r') as stream:
         config = yaml.load(stream, Loader=yaml.FullLoader)
 
+    config['model_configs']['model_name'] = args.model_name
     config['model_configs']['kernel_size'] = args.kernel_size
     config['model_configs']['depths'] = args.depths
     config['model_configs']['dims'] = args.dims
@@ -85,7 +88,7 @@ if __name__ == '__main__':
     # config['model_configs']['norm'] = args.normalization
 
     config['dataset_configs']['name'] = args.dataset_name
-    # config['dataset_configs']['reduced_mode'] = args.reduced_mode
+    config['dataset_configs']['reduced_mode'] = args.reduced_mode
     # config['dataset_configs']['file_name'] = args.file_name
 
     config['train_configs']['modal'] = args.modal

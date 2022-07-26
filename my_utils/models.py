@@ -2,15 +2,13 @@
 # @Date    : 2021/12/18 19:37
 # @Author  : WangYihao
 # @File    : model.py
+
 import math
 from typing import Tuple, Optional, Callable, List, Type, Any, Union
 
 import torch
 from torch import nn, Tensor
 import torch.nn.functional as F
-
-
-# from timm.models.layers import trunc_normal_, DropPath
 
 
 class NLOS_Conv(nn.Module):
@@ -28,9 +26,13 @@ class NLOS_Conv(nn.Module):
                  num_classes: int = 20,
                  kernel_size: int = 7,
                  depths: Tuple = (4, 1),
-                 dims: Tuple = (16, 32)):
-        super().__init__()
+                 dims: Tuple = (16, 32),
+                 groups: int = 1):
+        super(NLOS_Conv, self).__init__()
 
+        in_chans *= groups
+        dims = tuple(dim * groups for dim in dims)
+        self.groups = groups
         self.num_classes = num_classes
         assert len(depths) == len(dims)
         self.num_stages = len(dims)
@@ -53,7 +55,8 @@ class NLOS_Conv(nn.Module):
 
         self.apply(self._init_weights)
 
-    def _init_weights(self, m):
+    @staticmethod
+    def _init_weights(m):
         if isinstance(m, (nn.Conv2d, nn.Linear)):
             # trunc_normal_(m.weight, std=.02)
             nn.init.kaiming_normal_(m.weight)
@@ -68,7 +71,7 @@ class NLOS_Conv(nn.Module):
             kernel_size (int): Kernel size of Conv layer. Default: 7
         """
         block = nn.Sequential(
-            nn.Conv2d(in_chans, out_chans, kernel_size, stride=1, padding='same', bias=False),
+            nn.Conv2d(in_chans, out_chans, kernel_size, stride=1, padding='same', bias=False, groups=self.groups),
             nn.BatchNorm2d(out_chans),
             nn.LeakyReLU(negative_slope=1e-1),
             # nn.MaxPool2d(kernel_size=2)
@@ -116,7 +119,7 @@ class LayerNorm(nn.Module):
             return x
 
 
-class my_NLOS_3dConv_Base(nn.Module):
+class my_NLOS_3d(nn.Module):
     def __init__(
             self,
             in_chans: int = 3,
@@ -125,7 +128,7 @@ class my_NLOS_3dConv_Base(nn.Module):
             depths: Tuple = (2, 1),
             dims: Tuple = (16, 32)
     ) -> None:
-        super(my_NLOS_3dConv_Base, self).__init__()
+        super(my_NLOS_3d, self).__init__()
 
         assert len(depths) == len(dims)
         self.num_stages = len(dims)
@@ -162,8 +165,8 @@ class my_NLOS_3dConv_Base(nn.Module):
             nn.init.normal_(m.weight, 0, 0.01)
             nn.init.constant_(m.bias, 0)
 
-    def block_3d(self,
-                 in_chans: int,
+    @staticmethod
+    def block_3d(in_chans: int,
                  out_chans: int,
                  ks: int):
         r"""
@@ -172,7 +175,16 @@ class my_NLOS_3dConv_Base(nn.Module):
                 out_chans (int): Number of output image channels.
                 ks (int): Kernel size of Conv layer. Default: 7
             """
-        raise NotImplementedError
+        stride = 1 if in_chans == out_chans else 2
+        padding = (ks - 1) // 2
+        return nn.Sequential(
+            nn.Conv3d(in_chans, out_chans, bias=False,
+                      kernel_size=(ks, ks, ks),
+                      stride=(1, stride, stride),
+                      padding=(0, padding, padding)),
+            nn.BatchNorm3d(out_chans),
+            nn.ReLU(inplace=True)
+        )
 
     def forward(self, xx):
         x, labels = xx
@@ -187,73 +199,31 @@ class my_NLOS_3dConv_Base(nn.Module):
         return loss, preds
 
 
-class my_NLOS_3d(my_NLOS_3dConv_Base):
-    def __init__(self, in_chans: int = 3, num_classes: int = 20, kernel_size: int = 5,
-                 depths: Tuple = (2, 1), dims: Tuple = (16, 32)) -> None:
-        super(my_NLOS_3d, self).__init__(in_chans=in_chans, num_classes=num_classes, kernel_size=kernel_size,
-                                         depths=depths, dims=dims)
-
-    def block_3d(self, in_chans: int, out_chans: int, ks: int):
-        return my_3d_block(in_chans, out_chans, ks)
-
-
-def my_3d_block(in_chans: int,
-                out_chans: int,
-                ks: int):
-    r"""
-    Args:
-        in_chans (int): Number of input image channels.
-        out_chans (int): Number of output image channels.
-        ks (int): Kernel size of Conv layer. Default: 7
-    """
-    stride = 1 if in_chans == out_chans else 2
-    padding = (ks - 1) // 2
-    return nn.Sequential(
-        nn.Conv3d(in_chans, out_chans, bias=False,
-                  kernel_size=(ks, ks, ks),
-                  stride=(1, stride, stride),
-                  padding=(0, padding, padding)),
-        nn.BatchNorm3d(out_chans),
-        nn.ReLU(inplace=True)
-    )
-
-
-class my_NLOS_r21d(my_NLOS_3dConv_Base):
+class my_NLOS_r21d(my_NLOS_3d):
     def __init__(self, in_chans: int = 3, num_classes: int = 20, kernel_size: int = 5,
                  depths: Tuple = (2, 1), dims: Tuple = (16, 32)) -> None:
         super(my_NLOS_r21d, self).__init__(in_chans=in_chans, num_classes=num_classes, kernel_size=kernel_size,
                                            depths=depths, dims=dims)
 
-    def block_3d(self, in_chans: int, out_chans: int, ks: int):
-        return my_r21d_block(in_chans, out_chans, ks)
-
-
-def my_r21d_block(in_chans: int,
-                  out_chans: int,
-                  ks: int):
-    r"""
-    Args:
-        in_chans (int): Number of input image channels.
-        out_chans (int): Number of output image channels.
-        ks (int): Kernel size of Conv layer. Default: 7
-    """
-    mid_chans = in_chans if in_chans == out_chans else int(math.sqrt(in_chans * out_chans))
-    stride = 1 if in_chans == out_chans else 2
-    padding = (ks - 1) // 2
-    return nn.Sequential(
-        nn.Conv3d(in_chans, mid_chans, bias=False,
-                  kernel_size=(1, ks, ks),
-                  stride=(1, 1, 1),
-                  padding=(0, padding, padding)),
-        nn.BatchNorm3d(mid_chans),
-        nn.ReLU(inplace=True),
-        nn.Conv3d(mid_chans, out_chans, bias=False,
-                  kernel_size=(ks, 1, 1),
-                  stride=(1, stride, stride),
-                  padding=(padding, 0, 0)),
-        nn.BatchNorm3d(out_chans),
-        nn.ReLU(inplace=True),
-    )
+    @staticmethod
+    def block_3d(in_chans: int, out_chans: int, ks: int):
+        mid_chans = in_chans if in_chans == out_chans else int(math.sqrt(in_chans * out_chans))
+        stride = 1 if in_chans == out_chans else 2
+        padding = (ks - 1) // 2
+        return nn.Sequential(
+            nn.Conv3d(in_chans, mid_chans, bias=False,
+                      kernel_size=(1, ks, ks),
+                      stride=(1, 1, 1),
+                      padding=(0, padding, padding)),
+            nn.BatchNorm3d(mid_chans),
+            nn.ReLU(inplace=True),
+            nn.Conv3d(mid_chans, out_chans, bias=False,
+                      kernel_size=(ks, 1, 1),
+                      stride=(1, stride, stride),
+                      padding=(padding, 0, 0)),
+            nn.BatchNorm3d(out_chans),
+            nn.ReLU(inplace=True),
+        )
 
 
 class Conv2Plus1D(nn.Sequential):
@@ -338,7 +308,7 @@ class R2Plus1dStem(nn.Sequential):
             nn.ReLU(inplace=True))
 
 
-class NLOS_r21d(nn.Module):
+class R2Plus1D(nn.Module):
 
     def __init__(
             self,
@@ -358,7 +328,7 @@ class NLOS_r21d(nn.Module):
             stem: module specifying the ResNet stem. Defaults to R2Plus1dStem.
             num_classes: Dimension of the final FC layer. Defaults to 20.
         """
-        super(NLOS_r21d, self).__init__()
+        super(R2Plus1D, self).__init__()
         assert len(depths) == len(dims)
         self.num_blocks = len(depths)
         self.inplanes = 16
