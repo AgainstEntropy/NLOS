@@ -21,12 +21,13 @@ from torch.cuda.amp import GradScaler, autocast
 from torch.backends import cudnn
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import DistributedSampler, DataLoader
-# from torch.utils.tensorboard import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 from torchvision import transforms as T
 
 from my_utils import models
 from my_utils.data.dataset import split_dataset
 from my_utils.utils import AverageMeter, correct_rate
+
 
 # cudnn.benchmark = True
 
@@ -92,7 +93,6 @@ class Trainer(object):
         self.ckpt_dir = os.path.join(self.log_dir, 'checkpoints')
         os.makedirs(self.ckpt_dir, exist_ok=True)
         if self.dist_cfgs['local_rank'] == 0:
-            # self.writer = SummaryWriter(log_dir=self.log_dir)
             with open(os.path.join(self.log_dir, 'configs.yaml'), 'w', encoding="utf-8") as f:
                 yaml.safe_dump(self.cfg, f, default_flow_style=False, allow_unicode=True)
 
@@ -125,7 +125,7 @@ class Trainer(object):
         self._load_optimizer()
 
         if self.dist_cfgs['local_rank'] == 0:
-            self._init_wandb(project_name='NLOS', run_name=save_time)
+            self._init_recorder(project_name='NLOS', run_name=save_time)
 
         if self.train_cfgs['resume']:
             checkpoint_path = self.train_cfgs['resume_path']
@@ -133,13 +133,13 @@ class Trainer(object):
             self.load_checkpoint(checkpoint_path)
 
         if self.dist_cfgs['local_rank'] == 0:
-            print(f"{time.time() - tic} sec are used to initialize a Trainer.")
+            print(f"{time.time() - tic:.2f} sec are used to initialize a Trainer.")
 
-    def _init_wandb(self, project_name, run_name):
-        wandb_config = {
+    def _init_recorder(self, project_name, run_name):
+        train_config = {
             "dataset": self.dataset_cfgs['name'],
             "class_type": self.train_cfgs['class_type'],
-            # "kernel_size": self.model_cfgs['kernel_size'],
+            "kernel_size": self.model_cfgs['kernel_size'],
             "depths": self.model_cfgs['depths'],
             "dims": self.model_cfgs['dims'],
             "modal": self.train_cfgs['modal'],
@@ -151,13 +151,16 @@ class Trainer(object):
             "fig_size": self.dataset_cfgs['fig_resize'],
             "reduced_mode": self.dataset_cfgs['reduced_mode']
         }
-        wandb.init(project=project_name, entity="against-entropy", name=run_name, dir=self.log_dir,
-                   config=wandb_config)
-        wandb.watch(self.model)
-        config_table = PrettyTable()
-        config_table.add_column('Phase', list(wandb_config))
-        config_table.add_column('Value', list(wandb_config.values()))
+        if self.train_cfgs['recorder'] == 'wandb':
+            wandb.init(project=project_name, entity="against-entropy", name=run_name, dir=self.log_dir,
+                       config=train_config)
+            wandb.watch(self.model)
+        elif self.train_cfgs['recorder'] == 'tensorboard':
+            self.writer = SummaryWriter(log_dir=self.log_dir)
 
+        config_table = PrettyTable()
+        config_table.add_column('Phase', list(train_config))
+        config_table.add_column('Value', list(train_config.values()))
         logger.info('\n' + config_table.get_string())
 
     def _load_dataset(self):
@@ -270,22 +273,26 @@ class Trainer(object):
             self.epoch += 1
 
             if self.dist_cfgs['local_rank'] == 0:
-                for i, param_group in enumerate(self.optimizer.param_groups):
-                    # self.writer.add_scalar(tag=f'optimizer/lr_group_{i}',
-                    #                        scalar_value=param_group['lr'],
-                    #                        global_step=epoch)
-                    wandb.log({f"optimizer/lr_group_{i}": param_group['lr']}, step=epoch+1)
 
-                # self.writer.add_scalars('Metric/acc', {'train': train_acc, 'val': val_acc}, epoch + 1)
-                # self.writer.add_scalars('Metric/loss', {'train': train_loss, 'val': val_loss}, epoch + 1)
-
-                wandb.log({
-                    'Metric/acc/train': train_acc,
-                    'Metric/acc/val': val_acc,
-                    'Metric/acc/best_acc': self.val_metrics['best_acc'],
-                    'Metric/loss/train': train_loss,
-                    'Metric/loss/val': val_loss
-                }, step=epoch+1)
+                if self.train_cfgs['recorder'] == 'wandb':
+                    for i, param_group in enumerate(self.optimizer.param_groups):
+                        wandb.log({f"optimizer/lr_group_{i}": param_group['lr']}, step=epoch + 1)
+                    wandb.log({
+                        'Metric/acc/train': train_acc,
+                        'Metric/acc/val': val_acc,
+                        'Metric/acc/best_acc': self.val_metrics['best_acc'],
+                        'Metric/loss/train': train_loss,
+                        'Metric/loss/val': val_loss
+                    }, step=epoch + 1)
+                elif self.train_cfgs['recorder'] == 'tensorboard':
+                    for i, param_group in enumerate(self.optimizer.param_groups):
+                        self.writer.add_scalar(tag=f'optimizer/lr_group_{i}',
+                                               scalar_value=param_group['lr'],
+                                               global_step=epoch)
+                        self.writer.add_scalars('Metric', {'acc_train': train_acc,
+                                                           'acc_val': val_acc,
+                                                           'loss_train': train_loss,
+                                                           'loss_val': val_loss}, epoch + 1)
 
             self.scheduler.step()
 
@@ -295,7 +302,10 @@ class Trainer(object):
                 self.save_checkpoint(checkpoint_path)
 
         if self.dist_cfgs['local_rank'] == 0:
-            wandb.finish()
+            if self.train_cfgs['recorder'] == 'wandb':
+                wandb.finish()
+            elif self.train_cfgs['recorder'] == 'tensorboard':
+                self.writer.close()
 
         if self.dist_cfgs['distributed']:
             distributed.destroy_process_group()

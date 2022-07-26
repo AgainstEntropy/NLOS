@@ -1,5 +1,5 @@
 model_configs:
-#  kernel_size: 7
+  kernel_size: 7
   depths:
     - 4
     - 1
@@ -22,7 +22,7 @@ dataset_configs:
 loader_kwargs:
 #  batch_size: 512
 #  shuffle: true
-  num_workers: 4
+  num_workers: 8
   pin_memory: true
 #  drop_last: true
   prefetch_factor: 8
@@ -36,8 +36,9 @@ train_configs:
   class_type: action
   batch_size: 32
   seed: 1026
-  device: cuda:2
+  device: cuda:0
   amp: true
+  recorder: wandb
 
 optim_kwargs:
   optimizer: AdamW

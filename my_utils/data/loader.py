@@ -78,7 +78,14 @@ def load_avi(
     return tensor
 
 
-def load_mat(filename: str):
-    mat = loadmat(filename)['video']
+def load_mat(filename: str,
+             use_tcs: bool = True):
+    if use_tcs:
+        file_client = mmcv.fileio.FileClient(backend='petrel')
+        mat_bytes = file_client.get(filename)
+        with io.BytesIO(mat_bytes) as f:
+            mat = loadmat(f)['video']
+    else:
+        mat = loadmat(filename)['video']
     return torch.from_numpy(mat)
 

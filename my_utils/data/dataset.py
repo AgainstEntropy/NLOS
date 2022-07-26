@@ -413,15 +413,15 @@ class speed_checker(object):
         if not os.path.isdir(abs_png_dir):
             return 0
         if 'mat' in self.method:
-            mat_path = os.path.join(abs_png_dir, 'video_128_N0.mat')
-            return load_mat(mat_path)
+            return load_mat(os.path.join(abs_png_dir, 'video_128_N0.mat'),
+                            use_tcs='tcs' in self.method)
         elif 'avi' in self.method:
             return load_avi(os.path.join(abs_png_dir, 'video_I420_N0.avi'),
                             sub_mean=True, output_size=(128, 128),
                             use_tcs='tcs' in self.method)
 
     def check(self, method: str, times: int = 100):
-        assert method in ['mat', 'mat_transpose', 'avi', 'avi_tcs']
+        assert method in ['mat', 'mat_tcs', 'avi', 'avi_tcs']
         self.method = method
         if method == 'avi':
             decord.bridge.set_bridge('torch')

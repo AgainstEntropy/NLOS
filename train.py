@@ -44,7 +44,8 @@ def worker(rank, cfg):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="training a classifier convnet")
     parser.add_argument('-cfg', '--config', type=str, default='configs/S video.yaml')
-    # parser.add_argument('-ks', '--kernel_size', type=int, default=7)
+
+    parser.add_argument('-ks', '--kernel_size', type=int, default=7)
     parser.add_argument('--depths', type=lambda x: tuple(int(i) for i in x.split(',')), default='4,1')
     parser.add_argument('--dims', type=lambda x: tuple(int(i) for i in x.split(',')), default='16,32')
     # parser.add_argument('-act', '--activation', type=str, choices=['relu', 'gelu'], default='relu')
@@ -54,9 +55,11 @@ if __name__ == '__main__':
     # parser.add_argument('--reduced_mode', type=str, choices=['H', 'W', ''], default='H')
     # parser.add_argument('--file_name', type=str, choices=['N0', 'N0.05', '128_N0'], default='128_N0')
 
-    parser.add_argument('-b', '--batch_size', type=int, default=64)
+    parser.add_argument('-m', '--modal', type=str, choices=['video, image'], default='video')
+    parser.add_argument('-b', '--batch_size', type=int, default=128)
     # parser.add_argument('-r', '--resume', action='store_true', help='load previously saved checkpoint')
     # parser.add_argument('-ct', '--class_type', type=str, choices=['action', 'position'], required=True)
+    parser.add_argument('-rc', '--recorder', type=str, choices=['wandb', 'tensorboard'], default='wandb')
 
     # parser.add_argument('-op', '--optimizer', type=str, choices=['SGD', 'Adam', 'AdamW'], default='AdamW')
     parser.add_argument('-lr_b', '--lr_backbone', type=float, default=3e-4)
@@ -75,7 +78,7 @@ if __name__ == '__main__':
     with open(args.config, 'r') as stream:
         config = yaml.load(stream, Loader=yaml.FullLoader)
 
-    # config['model_configs']['kernel_size'] = args.kernel_size
+    config['model_configs']['kernel_size'] = args.kernel_size
     config['model_configs']['depths'] = args.depths
     config['model_configs']['dims'] = args.dims
     # config['model_configs']['act'] = args.activation
@@ -85,9 +88,11 @@ if __name__ == '__main__':
     # config['dataset_configs']['reduced_mode'] = args.reduced_mode
     # config['dataset_configs']['file_name'] = args.file_name
 
+    config['train_configs']['modal'] = args.modal
     config['train_configs']['batch_size'] = args.batch_size
     # config['train_configs']['resume'] = args.resume
     # config['train_configs']['class_type'] = args.class_type
+    config['train_configs']['recorder'] = args.recorder
 
     # config['optim_kwargs']['optimizer'] = args.optimizer
     config['optim_kwargs']['lr'] = args.lr_backbone
