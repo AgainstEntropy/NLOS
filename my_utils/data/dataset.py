@@ -70,7 +70,7 @@ class MyDataset_image(MyDataset_Base):
         else:
             mat = mat_dict[f'reduce_{self.reduce_mode}']  # (W=H, T, C)
 
-        tensor = self.transform(mat)  # (C', T, H=W)
+        tensor = self.transform(mat)  # (C', H=W, T)
         return tensor, int(label)
 
 
@@ -89,7 +89,7 @@ class MyDataset_video(MyDataset_Base):
         tensor = load_avi(filename=os.path.join(self.dataset_root, path, self.datafile_name),
                           output_size=self.resize,
                           sub_mean=True,
-                          use_tcs=True)
+                          use_tcs=True)  # (C, T, H, W)
         return tensor, int(label)
 
     def __len__(self):

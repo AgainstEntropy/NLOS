@@ -51,6 +51,12 @@ class NLOS_Conv(nn.Module):
 
         self.GAP = nn.AdaptiveAvgPool2d(output_size=(1, 1))
         self.head = nn.Linear(dims[-1], num_classes)
+        # mid_dim = int(math.sqrt(dims[-1] * num_classes))
+        # self.head = nn.Sequential(
+        #     nn.Linear(dims[-1], mid_dim),
+        #     nn.LeakyReLU(negative_slope=1e-1),
+        #     nn.Linear(mid_dim, num_classes),
+        # )
         self.loss_func = nn.CrossEntropyLoss()
 
         self.apply(self._init_weights)
@@ -70,13 +76,12 @@ class NLOS_Conv(nn.Module):
             out_chans (int): Number of output image channels.
             kernel_size (int): Kernel size of Conv layer. Default: 7
         """
-        block = nn.Sequential(
+        return nn.Sequential(
             nn.Conv2d(in_chans, out_chans, kernel_size, stride=1, padding='same', bias=False, groups=self.groups),
             nn.BatchNorm2d(out_chans),
             nn.LeakyReLU(negative_slope=1e-1),
-            # nn.MaxPool2d(kernel_size=2)
+            nn.MaxPool2d(kernel_size=2)
         )
-        return block
 
     def forward(self, xx):
         x, labels = xx
@@ -146,7 +151,13 @@ class my_NLOS_3d(nn.Module):
                 self.stages.append(self.block_3d(dims[i], dims[i + 1], kernel_size))
 
         self.GAP = nn.AdaptiveAvgPool3d(output_size=(1, 1, 1))
-        self.head = nn.Linear(dims[-1], num_classes)
+        # self.head = nn.Linear(dims[-1], num_classes)
+        mid_dim = int(math.sqrt(dims[-1] * num_classes))
+        self.head = nn.Sequential(
+            nn.Linear(dims[-1], mid_dim),
+            nn.ReLU(inplace=True),
+            nn.Linear(mid_dim, num_classes),
+        )
         self.loss_func = nn.CrossEntropyLoss()
 
         self.apply(self._init_weights)
